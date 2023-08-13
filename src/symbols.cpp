@@ -3,7 +3,7 @@
 
 #include <vector>
 
-void add_builtin_types(SymbolMap& symbols)  {
+void add_builtin_types(SymbolMap &symbols) {
     symbols.emplace("bool", Symbol{Symbol::Type, "<type>"});
     symbols.emplace("int", Symbol{Symbol::Type, "<type>"});
     symbols.emplace("uint", Symbol{Symbol::Type, "<type>"});
@@ -42,8 +42,8 @@ void add_builtin_types(SymbolMap& symbols)  {
         symbols.emplace(&mat_buffer[1], Symbol{Symbol::Type, "<type>"});
         mat_buffer[5] = 'x';
     }
-    
-    const char* image_kinds[] = {
+
+    const char *image_kinds[] = {
         "1D",
         "2D",
         "3D",
@@ -80,7 +80,7 @@ void add_builtin_types(SymbolMap& symbols)  {
         symbols.emplace(buffer, Symbol{Symbol::Type, "<type>"});
     }
 
-    const char* shadow_samplers[] = {
+    const char *shadow_samplers[] = {
         "sampler1DShadow",
         "sampler2DShadow",
         "samplerCubeShadow",
@@ -96,11 +96,11 @@ void add_builtin_types(SymbolMap& symbols)  {
 }
 
 struct Word {
-    const char* start = nullptr;
-    const char* end = nullptr;
+    const char *start = nullptr;
+    const char *end = nullptr;
 
-    bool is_equal(const char* text) const {
-        const char* s = start;
+    bool is_equal(const char *text) const {
+        const char *s = start;
         while (s != end && *s == *text) {
             s++;
             text++;
@@ -119,54 +119,56 @@ bool is_whitespace(char c) {
 /// The current implementation uses naive heuristics and thus may not handle
 /// certain cases that well, and also give wrong results. This should be
 /// replaced with an actual parser, but is workable for now.
-void extract_symbols(const char* text, SymbolMap& symbols, const char* uri) {
+void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
     std::vector<Word> words;
     int arguments = 0;
     Word array{};
     Word inside_block{};
 
-    const char* p = text;
+    const char *p = text;
     while (*p) {
         if (is_identifier_start_char(*p)) {
-            const char* start = p;
-            while (is_identifier_char(*p)) p++;
+            const char *start = p;
+            while (is_identifier_char(*p))
+                p++;
             Word ident{start, p};
 
             if (*p == '[') {
-                const char* array_start = p;
-                while (*p && *p != ']') p++;
-                array = Word{array_start, *p == ']' ? p+1 : p};
+                const char *array_start = p;
+                while (*p && *p != ']')
+                    p++;
+                array = Word{array_start, *p == ']' ? p + 1 : p};
             }
 
             // don't confuse `layout(...)` for a function.
             if (ident.is_equal("layout")) {
-                while (is_whitespace(*p)) p++;
+                while (is_whitespace(*p))
+                    p++;
                 if (*p == '(') {
-                    while (*p && *p != ')') p++;
+                    while (*p && *p != ')')
+                        p++;
                 }
                 continue;
             }
 
             words.push_back(ident);
             continue;
-        } 
+        }
 
         // don't confuse numeric literals as identifiers
         if ('0' <= *p && *p <= '9') {
             p++;
-            while (is_identifier_char(*p)) p++;
+            while (is_identifier_char(*p))
+                p++;
             continue;
-        } 
+        }
 
         if (*p == '{') {
             // TODO: handle function bodies
 
             if (words.size() >= 2 && arguments == 0) {
                 Word kind = words[words.size() - 2];
-                if (kind.is_equal("in") 
-                        || kind.is_equal("out") 
-                        || kind.is_equal("uniform") 
-                        || kind.is_equal("buffer")) {
+                if (kind.is_equal("in") || kind.is_equal("out") || kind.is_equal("uniform") || kind.is_equal("buffer")) {
                     inside_block = words[words.size() - 1];
                     words.clear();
                     p++;
@@ -175,9 +177,10 @@ void extract_symbols(const char* text, SymbolMap& symbols, const char* uri) {
             }
 
             // skip struct fields and function bodies (their contents are not global)
-            while (*p && *p != '}') p++;
+            while (*p && *p != '}')
+                p++;
             continue;
-        } 
+        }
 
         if (*p == '}' && inside_block.start) {
             words.push_back(inside_block);
@@ -186,7 +189,7 @@ void extract_symbols(const char* text, SymbolMap& symbols, const char* uri) {
 
         if (*p == '(') {
             p++;
-            const char* start = nullptr;
+            const char *start = nullptr;
             while (*p) {
                 if (is_whitespace(*p)) {
                     p++;
@@ -199,18 +202,20 @@ void extract_symbols(const char* text, SymbolMap& symbols, const char* uri) {
                         arguments++;
                     }
 
-                    if (*p == ')') break;
+                    if (*p == ')')
+                        break;
 
                     p++;
                     start = nullptr;
                     continue;
                 }
 
-                if (!start) start = p;
+                if (!start)
+                    start = p;
 
                 p++;
             }
-        } 
+        }
 
         if (*p == ';' || *p == ')' || *p == '=') {
             // end of declaration
@@ -242,12 +247,13 @@ void extract_symbols(const char* text, SymbolMap& symbols, const char* uri) {
                     }
 
                     Word arg = words[name_index + 1 + i];
-                    const char* t = arg.start;
+                    const char *t = arg.start;
                     while (t != arg.end) {
                         if (is_whitespace(*t)) {
                             // only emit a single space
                             type.push_back(' ');
-                            while (t != arg.end && is_whitespace(*t)) t++;
+                            while (t != arg.end && is_whitespace(*t))
+                                t++;
                         } else {
                             type.push_back(*t);
                             t++;
@@ -270,11 +276,11 @@ void extract_symbols(const char* text, SymbolMap& symbols, const char* uri) {
 
             if (*p == '=') {
                 // if we have a constant assignment, skip over the expression
-                while (*p && *p != ';') p++;
+                while (*p && *p != ';')
+                    p++;
             }
         }
 
         p++;
     }
 }
-

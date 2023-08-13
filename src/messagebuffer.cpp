@@ -3,8 +3,7 @@
 MessageBuffer::MessageBuffer() {}
 MessageBuffer::~MessageBuffer() {}
 
-void MessageBuffer::handle_char(char c)
-{
+void MessageBuffer::handle_char(char c) {
     m_raw_message += c;
 
     auto new_header = try_parse_header(m_raw_message);
@@ -34,8 +33,7 @@ void MessageBuffer::handle_char(char c)
     }
 }
 
-void MessageBuffer::handle_string(std::string s)
-{
+void MessageBuffer::handle_string(std::string s) {
     m_raw_message += s;
 
     auto new_header = try_parse_header(m_raw_message);
@@ -65,31 +63,26 @@ void MessageBuffer::handle_string(std::string s)
     }
 }
 
-const std::map<std::string, std::string>& MessageBuffer::headers() const
-{
+const std::map<std::string, std::string> &MessageBuffer::headers() const {
     return m_headers;
 }
 
-const json& MessageBuffer::body() const
-{
+const json &MessageBuffer::body() const {
     return m_body;
 }
 
-const std::string& MessageBuffer::raw() const
-{
+const std::string &MessageBuffer::raw() const {
     return m_raw_message;
 }
 
-bool MessageBuffer::message_completed()
-{
+bool MessageBuffer::message_completed() {
     if (m_is_header_done && !m_body.empty()) {
         return true;
     }
     return false;
 }
 
-std::tuple<std::string, std::string> MessageBuffer::try_parse_header(std::string& message) const
-{
+std::tuple<std::string, std::string> MessageBuffer::try_parse_header(std::string &message) const {
     auto eol_pos = m_raw_message.find("\r\n");
     if (eol_pos != std::string::npos) {
         std::string header_string = m_raw_message.substr(0, eol_pos);

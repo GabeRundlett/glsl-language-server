@@ -4,16 +4,15 @@
 #include "workspace.hpp"
 
 class FileIncluder : public glslang::TShader::Includer {
-    Workspace* workspace;
+    Workspace *workspace;
 
-public:
-    FileIncluder(Workspace* workspace) : workspace(workspace) {}
+  public:
+    FileIncluder(Workspace *workspace) : workspace(workspace) {}
 
-    virtual void releaseInclude(IncludeResult*) override;
+    virtual void releaseInclude(IncludeResult *) override;
 
-    virtual IncludeResult* includeLocal(
-            const char* header_name,
-            const char* includer_name,
-            size_t depth) override;
+    virtual IncludeResult *includeLocal(
+        const char *header_name,
+        const char *includer_name,
+        size_t depth) override;
 };
-

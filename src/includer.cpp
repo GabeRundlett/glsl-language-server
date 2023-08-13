@@ -7,17 +7,17 @@ namespace fs = std::filesystem;
 
 using IncludeResult = FileIncluder::IncludeResult;
 
-void FileIncluder::releaseInclude(IncludeResult* result) {
+void FileIncluder::releaseInclude(IncludeResult *result) {
     delete result;
 }
 
-IncludeResult* FileIncluder::includeLocal(
-        const char* header_name,
-        const char* includer_name,
-        size_t depth)
-{
+IncludeResult *FileIncluder::includeLocal(
+    const char *header_name,
+    const char *includer_name,
+    size_t depth) {
     auto suffix = strip_prefix("file://", includer_name);
-    if (!suffix) return nullptr;
+    if (!suffix)
+        return nullptr;
 
     fs::path path = suffix;
     path.replace_filename(header_name);
@@ -26,7 +26,7 @@ IncludeResult* FileIncluder::includeLocal(
     std::string uri = "file://";
     uri += path.string();
 
-    auto& documents = this->workspace->documents();
+    auto &documents = this->workspace->documents();
 
     auto existing = documents.find(uri);
     if (existing == documents.end()) {
@@ -39,6 +39,6 @@ IncludeResult* FileIncluder::includeLocal(
         }
     }
 
-    const std::string& contents = existing->second;
+    const std::string &contents = existing->second;
     return new IncludeResult{uri, contents.c_str(), contents.size(), nullptr};
 }

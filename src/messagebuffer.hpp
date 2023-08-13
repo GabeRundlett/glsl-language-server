@@ -1,5 +1,4 @@
-#ifndef MESSAGEBUFFER_H
-#define MESSAGEBUFFER_H
+#pragma once
 
 #include "nlohmann/json.hpp"
 
@@ -9,18 +8,18 @@
 using json = nlohmann::json;
 
 class MessageBuffer {
-public:
+  public:
     MessageBuffer();
     virtual ~MessageBuffer();
     void handle_char(char c);
     void handle_string(std::string s);
-    const std::map<std::string, std::string>& headers() const;
-    const json& body() const;
-    const std::string& raw() const;
+    const std::map<std::string, std::string> &headers() const;
+    const json &body() const;
+    const std::string &raw() const;
     bool message_completed();
     void clear();
 
-private:
+  private:
     std::tuple<std::string, std::string> try_parse_header(std::string &message) const;
 
     std::string m_raw_message;
@@ -31,5 +30,3 @@ private:
     // header is done.
     bool m_is_header_done = false;
 };
-
-#endif /* MESSAGEBUFFER_H */
