@@ -12,7 +12,7 @@ void add_builtin_types(SymbolMap &symbols) {
 
     std::string vec_buffer = "TvecX";
     for (int i = 2; i <= 4; i++) {
-        vec_buffer[4] = '0' + i;
+        vec_buffer[4] = static_cast<char>(static_cast<int>('0') + i);
 
         // vec2, vec3, vec4, etc.
         symbols.emplace(&vec_buffer[1], Symbol{Symbol::Type, "<type>"});
@@ -29,16 +29,16 @@ void add_builtin_types(SymbolMap &symbols) {
 
     std::string mat_buffer = "dmatXxX";
     for (int col = 2; col <= 4; col++) {
-        mat_buffer[4] = '0' + col;
+        mat_buffer[4] = static_cast<char>(static_cast<int>('0') + col);
 
         for (int row = 2; row <= 4; row++) {
-            mat_buffer[6] = '0' + row;
+            mat_buffer[6] = static_cast<char>(static_cast<int>('0') + row);
             symbols.emplace(&mat_buffer[1], Symbol{Symbol::Type, "<type>"});
             symbols.emplace(mat_buffer, Symbol{Symbol::Type, "<type>"});
         }
 
         mat_buffer[5] = 0;
-        symbols.emplace(&mat_buffer[0], Symbol{Symbol::Type, "<type>"});
+        symbols.emplace(mat_buffer.data(), Symbol{Symbol::Type, "<type>"});
         symbols.emplace(&mat_buffer[1], Symbol{Symbol::Type, "<type>"});
         mat_buffer[5] = 'x';
     }
@@ -57,10 +57,10 @@ void add_builtin_types(SymbolMap &symbols) {
         "2DMSArray",
     };
 
-    int image_count = sizeof(image_kinds) / sizeof(image_kinds[0]);
-    for (int i = 0; i < image_count; i++) {
+    // int const image_count = sizeof(image_kinds) / sizeof(image_kinds[0]);
+    for (auto &image_kind : image_kinds) {
         std::string buffer = "gimage";
-        buffer += image_kinds[i];
+        buffer += image_kind;
 
         symbols.emplace(&buffer[1], Symbol{Symbol::Type, "<type>"});
         buffer[0] = 'i';
@@ -69,9 +69,9 @@ void add_builtin_types(SymbolMap &symbols) {
         symbols.emplace(buffer, Symbol{Symbol::Type, "<type>"});
     }
 
-    for (int i = 0; i < image_count; i++) {
+    for (auto &image_kind : image_kinds) {
         std::string buffer = "gsampler";
-        buffer += image_kinds[i];
+        buffer += image_kind;
 
         symbols.emplace(&buffer[1], Symbol{Symbol::Type, "<type>"});
         buffer[0] = 'i';
@@ -89,9 +89,9 @@ void add_builtin_types(SymbolMap &symbols) {
         "sampler2DArrayShadow",
         "samplerCubeArrayShadow",
     };
-    int shadow_sampler_count = sizeof(shadow_samplers) / sizeof(shadow_samplers[0]);
-    for (int i = 0; i < shadow_sampler_count; i++) {
-        symbols.emplace(shadow_samplers[i], Symbol{Symbol::Type, "<type>"});
+    // int const shadow_sampler_count = sizeof(shadow_samplers) / sizeof(shadow_samplers[0]);
+    for (auto &shadow_sampler : shadow_samplers) {
+        symbols.emplace(shadow_sampler, Symbol{Symbol::Type, "<type>"});
     }
 }
 
@@ -99,7 +99,7 @@ struct Word {
     const char *start = nullptr;
     const char *end = nullptr;
 
-    bool is_equal(const char *text) const {
+    auto is_equal(const char *text) const -> bool {
         const char *s = start;
         while (s != end && *s == *text) {
             s++;
@@ -109,7 +109,7 @@ struct Word {
     }
 };
 
-bool is_whitespace(char c) {
+auto is_whitespace(char c) -> bool {
     return c == ' ' || c == '\t' || c == '\n';
 }
 
@@ -126,27 +126,31 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
     Word inside_block{};
 
     const char *p = text;
-    while (*p) {
+    while (*p != 0) {
         if (is_identifier_start_char(*p)) {
             const char *start = p;
-            while (is_identifier_char(*p))
+            while (is_identifier_char(*p)) {
                 p++;
-            Word ident{start, p};
+            }
+            Word const ident{start, p};
 
             if (*p == '[') {
                 const char *array_start = p;
-                while (*p && *p != ']')
+                while ((*p != 0) && *p != ']') {
                     p++;
+                }
                 array = Word{array_start, *p == ']' ? p + 1 : p};
             }
 
             // don't confuse `layout(...)` for a function.
             if (ident.is_equal("layout")) {
-                while (is_whitespace(*p))
+                while (is_whitespace(*p)) {
                     p++;
+                }
                 if (*p == '(') {
-                    while (*p && *p != ')')
+                    while ((*p != 0) && *p != ')') {
                         p++;
+                    }
                 }
                 continue;
             }
@@ -158,8 +162,9 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
         // don't confuse numeric literals as identifiers
         if ('0' <= *p && *p <= '9') {
             p++;
-            while (is_identifier_char(*p))
+            while (is_identifier_char(*p)) {
                 p++;
+            }
             continue;
         }
 
@@ -167,7 +172,7 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
             // TODO: handle function bodies
 
             if (words.size() >= 2 && arguments == 0) {
-                Word kind = words[words.size() - 2];
+                Word const kind = words[words.size() - 2];
                 if (kind.is_equal("in") || kind.is_equal("out") || kind.is_equal("uniform") || kind.is_equal("buffer")) {
                     inside_block = words[words.size() - 1];
                     words.clear();
@@ -177,12 +182,13 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
             }
 
             // skip struct fields and function bodies (their contents are not global)
-            while (*p && *p != '}')
+            while ((*p != 0) && *p != '}') {
                 p++;
+            }
             continue;
         }
 
-        if (*p == '}' && inside_block.start) {
+        if (*p == '}' && (inside_block.start != nullptr)) {
             words.push_back(inside_block);
             inside_block = Word{};
         }
@@ -190,28 +196,30 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
         if (*p == '(') {
             p++;
             const char *start = nullptr;
-            while (*p) {
+            while (*p != 0) {
                 if (is_whitespace(*p)) {
                     p++;
                     continue;
                 }
 
                 if (*p == ')' || *p == ',') {
-                    if (start) {
+                    if (start != nullptr) {
                         words.push_back({start, p});
                         arguments++;
                     }
 
-                    if (*p == ')')
+                    if (*p == ')') {
                         break;
+                    }
 
                     p++;
                     start = nullptr;
                     continue;
                 }
 
-                if (!start)
+                if (start == nullptr) {
                     start = p;
+                }
 
                 p++;
             }
@@ -219,14 +227,14 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
 
         if (*p == ';' || *p == ')' || *p == '=') {
             // end of declaration
-            int name_index = (int)words.size() - arguments - 1;
-            int type_index = name_index - 1;
+            int const name_index = (int)words.size() - arguments - 1;
+            int const type_index = name_index - 1;
 
             if (name_index >= 0) {
-                Word name_word = words[name_index];
-                Word type_word = type_index >= 0 ? words[type_index] : Word{};
+                Word const name_word = words[name_index];
+                Word const type_word = type_index >= 0 ? words[type_index] : Word{};
 
-                std::string name(name_word.start, name_word.end);
+                std::string const name(name_word.start, name_word.end);
                 std::string type(type_word.start, type_word.end);
 
                 if (!type.empty()) {
@@ -235,7 +243,7 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
                     }
                 }
 
-                if (arguments == 0 && array.start) {
+                if (arguments == 0 && (array.start != nullptr)) {
                     type.append(array.start, array.end);
                 }
 
@@ -246,14 +254,15 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
                         type += ", ";
                     }
 
-                    Word arg = words[name_index + 1 + i];
+                    Word const arg = words[name_index + 1 + i];
                     const char *t = arg.start;
                     while (t != arg.end) {
                         if (is_whitespace(*t)) {
                             // only emit a single space
                             type.push_back(' ');
-                            while (t != arg.end && is_whitespace(*t))
+                            while (t != arg.end && is_whitespace(*t)) {
                                 t++;
+                            }
                         } else {
                             type.push_back(*t);
                             t++;
@@ -265,8 +274,8 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
                     }
                 }
 
-                Symbol::Kind kind = *p == ')' ? Symbol::Function : Symbol::Constant;
-                int offset = name_word.start - text;
+                Symbol::Kind const kind = *p == ')' ? Symbol::Function : Symbol::Constant;
+                int offset = static_cast<int>(name_word.start - text);
                 symbols.emplace(name, Symbol{kind, type, {uri, offset}});
             }
 
@@ -276,8 +285,9 @@ void extract_symbols(const char *text, SymbolMap &symbols, const char *uri) {
 
             if (*p == '=') {
                 // if we have a constant assignment, skip over the expression
-                while (*p && *p != ';')
+                while ((*p != 0) && *p != ';') {
                     p++;
+                }
             }
         }
 

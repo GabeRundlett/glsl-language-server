@@ -12,7 +12,7 @@ class MessageBuffer {
     MessageBuffer();
     virtual ~MessageBuffer();
     void handle_char(char c);
-    void handle_string(std::string s);
+    void handle_string(const std::string &s);
     const std::map<std::string, std::string> &headers() const;
     const json &body() const;
     const std::string &raw() const;

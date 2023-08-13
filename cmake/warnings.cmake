@@ -85,11 +85,13 @@ function(enable_static_analysis)
             --suppress=preprocessorErrorDirective
             --suppress=exceptThrowInDestructor
             --suppress=functionStatic
-            --inconclusive)
+            --inconclusive
+            PARENT_SCOPE)
     endif()
     if(CLANG_TIDY)
         set(CMAKE_CXX_CLANG_TIDY
             ${CLANG_TIDY}
-            --fix)
+            --fix
+            PARENT_SCOPE)
     endif()
 endfunction()

@@ -1,7 +1,7 @@
 #include "messagebuffer.hpp"
 
-MessageBuffer::MessageBuffer() {}
-MessageBuffer::~MessageBuffer() {}
+MessageBuffer::MessageBuffer() = default;
+MessageBuffer::~MessageBuffer() = default;
 
 void MessageBuffer::handle_char(char c) {
     m_raw_message += c;
@@ -33,7 +33,7 @@ void MessageBuffer::handle_char(char c) {
     }
 }
 
-void MessageBuffer::handle_string(std::string s) {
+void MessageBuffer::handle_string(const std::string &s) {
     m_raw_message += s;
 
     auto new_header = try_parse_header(m_raw_message);
@@ -63,33 +63,33 @@ void MessageBuffer::handle_string(std::string s) {
     }
 }
 
-const std::map<std::string, std::string> &MessageBuffer::headers() const {
+auto MessageBuffer::headers() const -> const std::map<std::string, std::string> & {
     return m_headers;
 }
 
-const json &MessageBuffer::body() const {
+auto MessageBuffer::body() const -> const json & {
     return m_body;
 }
 
-const std::string &MessageBuffer::raw() const {
+auto MessageBuffer::raw() const -> const std::string & {
     return m_raw_message;
 }
 
-bool MessageBuffer::message_completed() {
+auto MessageBuffer::message_completed() -> bool {
     if (m_is_header_done && !m_body.empty()) {
         return true;
     }
     return false;
 }
 
-std::tuple<std::string, std::string> MessageBuffer::try_parse_header(std::string &message) const {
+auto MessageBuffer::try_parse_header(std::string & /*message*/) const -> std::tuple<std::string, std::string> {
     auto eol_pos = m_raw_message.find("\r\n");
     if (eol_pos != std::string::npos) {
-        std::string header_string = m_raw_message.substr(0, eol_pos);
-        auto delim_pos = header_string.find(":");
+        std::string const header_string = m_raw_message.substr(0, eol_pos);
+        auto delim_pos = header_string.find(':');
         if (delim_pos != std::string::npos) {
-            std::string header_name = header_string.substr(0, delim_pos);
-            std::string header_value = header_string.substr(delim_pos + 1);
+            std::string const header_name = header_string.substr(0, delim_pos);
+            std::string const header_value = header_string.substr(delim_pos + 1);
             return std::make_tuple(header_name, header_value);
         }
     }

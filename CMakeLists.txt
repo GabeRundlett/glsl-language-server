@@ -3,9 +3,12 @@ project(glsl-language-server VERSION 1.0.0)
 
 include(cmake/warnings.cmake)
 
+# enable_static_analysis()
+
 file(GLOB SOURCES src/*.cpp)
 add_executable(glslls ${SOURCES})
 target_compile_features(glslls PRIVATE cxx_std_20)
+set_project_warnings(glslls)
 
 find_package(Threads REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)

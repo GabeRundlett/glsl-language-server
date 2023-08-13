@@ -11,13 +11,14 @@ void FileIncluder::releaseInclude(IncludeResult *result) {
     delete result;
 }
 
-IncludeResult *FileIncluder::includeLocal(
+auto FileIncluder::includeLocal(
     const char *header_name,
     const char *includer_name,
-    size_t depth) {
-    auto suffix = strip_prefix("file://", includer_name);
-    if (!suffix)
+    size_t /*depth*/) -> IncludeResult * {
+    const auto *suffix = strip_prefix("file://", includer_name);
+    if (suffix == nullptr) {
         return nullptr;
+    }
 
     fs::path path = suffix;
     path.replace_filename(header_name);

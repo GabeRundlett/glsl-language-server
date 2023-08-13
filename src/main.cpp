@@ -13,6 +13,7 @@
 #include <optional>
 #include <regex>
 #include <string>
+#include <utility>
 #include <vector>
 #include <map>
 
@@ -40,13 +41,13 @@ struct TargetVersions {
 
 struct AppState {
     Workspace workspace;
-    bool verbose;
-    bool use_logfile;
+    bool verbose{};
+    bool use_logfile{};
     std::ofstream logfile_stream;
     TargetVersions target;
 };
 
-std::string make_response(const json &response) {
+auto make_response(const json &response) -> std::string {
     json content = response;
     content["jsonrpc"] = "2.0";
 
@@ -57,64 +58,67 @@ std::string make_response(const json &response) {
     return header + content.dump(4);
 }
 
-EShLanguage find_language(const std::string &name) {
+auto find_language(const std::string &name) -> EShLanguage {
     // As well as the one used in glslang, there are a number of different conventions used for naming GLSL shaders.
     // This function attempts to support the most common ones, by checking if the filename ends with one of a list of known extensions.
     // If a ".glsl" extension is found initially, it is first removed to allow for e.g. vs.glsl/vert.glsl naming.
     auto path = fs::path(name);
     auto ext = path.extension().string();
-    if (ext == ".glsl")
+    if (ext == ".glsl") {
         ext = path.replace_extension().string();
-    if (ext.ends_with("vert") || ext.ends_with("vs") || ext.ends_with("vsh"))
+    }
+    if (ext.ends_with("vert") || ext.ends_with("vs") || ext.ends_with("vsh")) {
         return EShLangVertex;
-    else if (ext.ends_with("tesc"))
+    } else if (ext.ends_with("tesc")) {
         return EShLangTessControl;
-    else if (ext.ends_with("tese"))
+    } else if (ext.ends_with("tese")) {
         return EShLangTessEvaluation;
-    else if (ext.ends_with("geom") || ext.ends_with("gs") || ext.ends_with("gsh"))
+    } else if (ext.ends_with("geom") || ext.ends_with("gs") || ext.ends_with("gsh")) {
         return EShLangGeometry;
-    else if (ext.ends_with("frag") || ext.ends_with("fs") || ext.ends_with("fsh"))
+    } else if (ext.ends_with("frag") || ext.ends_with("fs") || ext.ends_with("fsh")) {
         return EShLangFragment;
-    else if (ext.ends_with("comp"))
+    } else if (ext.ends_with("comp")) {
         return EShLangCompute;
-    throw std::invalid_argument("Unknown file extension!");
+    }
+    // throw std::invalid_argument("Unknown file extension!");
+    return {};
 }
 
-json get_diagnostics(std::string uri, std::string content,
-                     AppState &appstate) {
-    FILE fp_old = *stdout;
+auto get_diagnostics(std::string uri, const std::string &content,
+                     AppState &appstate) -> json {
+    FILE const fp_old = *stdout;
     *stdout = *fopen("/dev/null", "w");
-    auto document = uri;
+    const auto &document = std::move(uri);
     auto lang = find_language(document);
 
     glslang::TShader shader(lang);
 
     auto target = appstate.target;
 
-    if (target.options & EShMsgSpvRules) {
-        if (target.options & EShMsgVulkanRules) {
-            shader.setEnvInput((target.options & EShMsgReadHlsl) ? glslang::EShSourceHlsl
-                                                                 : glslang::EShSourceGlsl,
+    if ((target.options & EShMsgSpvRules) != 0u) {
+        if ((target.options & EShMsgVulkanRules) != 0u) {
+            shader.setEnvInput((target.options & EShMsgReadHlsl) != 0u ? glslang::EShSourceHlsl
+                                                                       : glslang::EShSourceGlsl,
                                lang, glslang::EShClientVulkan, 100);
             shader.setEnvClient(glslang::EShClientVulkan, target.client_api_version);
             shader.setEnvTarget(glslang::EShTargetSpv, target.spv_version);
         } else {
-            shader.setEnvInput((target.options & EShMsgReadHlsl) ? glslang::EShSourceHlsl
-                                                                 : glslang::EShSourceGlsl,
+            shader.setEnvInput((target.options & EShMsgReadHlsl) != 0u ? glslang::EShSourceHlsl
+                                                                       : glslang::EShSourceGlsl,
                                lang, glslang::EShClientOpenGL, 100);
             shader.setEnvClient(glslang::EShClientOpenGL, target.client_api_version);
             shader.setEnvTarget(glslang::EshTargetSpv, target.spv_version);
         }
     }
 
-    auto shader_cstring = content.c_str();
-    auto shader_name = document.c_str();
+    const auto *shader_cstring = content.c_str();
+    const auto *shader_name = document.c_str();
     shader.setStringsWithLengthsAndNames(&shader_cstring, nullptr, &shader_name, 1);
 
     FileIncluder includer{&appstate.workspace};
 
-    TBuiltInResource Resources = *GetDefaultResources();
-    EShMessages messages =
+    TBuiltInResource const Resources = *GetDefaultResources();
+    auto const messages =
         (EShMessages)(EShMsgCascadingErrors | target.options);
     shader.parse(&Resources, 110, false, messages, includer);
     std::string debug_log = shader.getInfoLog();
@@ -124,18 +128,19 @@ json get_diagnostics(std::string uri, std::string content,
         fmt::print(appstate.logfile_stream, "Diagnostics raw output: {}\n", debug_log);
     }
 
-    std::regex re("([A-Z]*): (.*):(\\d*): (.*)");
+    std::regex const re("([A-Z]*): (.*):(\\d*): (.*)");
     std::smatch matches;
     auto error_lines = split_string(debug_log, "\n");
     auto content_lines = split_string(content, "\n");
 
     json diagnostics;
-    for (auto error_line : error_lines) {
+    for (const auto &error_line : error_lines) {
         std::regex_search(error_line, matches, re);
         if (matches.size() == 5) {
-            std::string file = matches[2];
-            if (file != document)
+            std::string const file = matches[2];
+            if (file != document) {
                 continue; // message is for another file
+            }
 
             json diagnostic;
             std::string severity = matches[1];
@@ -151,11 +156,11 @@ json get_diagnostics(std::string uri, std::string content,
                 }
             }
 
-            std::string message = trim(matches[4], " ");
+            std::string const message = trim(matches[4], " ");
 
             // -1 because lines are 0-indexed as per LSP specification.
             int line_no = std::stoi(matches[3]) - 1;
-            std::string source_line = content_lines[line_no];
+            std::string const source_line = content_lines[line_no];
 
             int start_char = -1;
             int end_char = -1;
@@ -163,21 +168,21 @@ json get_diagnostics(std::string uri, std::string content,
             // If this is an undeclared identifier, we can find the exact
             // position of the broken identifier.
             std::smatch message_matches;
-            std::regex re("'(.*)' : (.*)");
-            std::regex_search(message, message_matches, re);
+            std::regex const msg_re("'(.*)' : (.*)");
+            std::regex_search(message, message_matches, msg_re);
             if (message_matches.size() == 3) {
-                std::string identifier = message_matches[1];
-                int identifier_length = message_matches[1].length();
+                std::string const identifier = message_matches[1];
+                auto identifier_length = message_matches[1].length();
                 auto source_pos = source_line.find(identifier);
-                start_char = source_pos;
-                end_char = source_pos + identifier_length - 1;
+                start_char = static_cast<int>(source_pos);
+                end_char = static_cast<int>(source_pos) + static_cast<int>(identifier_length) - 1;
             } else {
                 // If we can't find a precise position, we'll just use the whole line.
                 start_char = 0;
-                end_char = source_line.length();
+                end_char = static_cast<int>(source_line.length());
             }
 
-            json range{
+            json const range{
                 {"start", {
                               {"line", line_no},
                               {"character", start_char},
@@ -201,13 +206,13 @@ json get_diagnostics(std::string uri, std::string content,
     return diagnostics;
 }
 
-SymbolMap get_symbols(const std::string &uri, AppState &appstate) {
+auto get_symbols(const std::string &uri, AppState &appstate) -> SymbolMap {
     auto language = find_language(uri);
 
     // use the highest known version so that we get as many symbols as possible
-    int version = 460;
+    int const version = 460;
     // same thing here: use compatibility profile for more symbols
-    EProfile profile = ECompatibilityProfile;
+    EProfile const profile = ECompatibilityProfile;
 
     glslang::SpvVersion spv_version{};
     spv_version.spv = appstate.target.spv_version;
@@ -236,10 +241,10 @@ SymbolMap get_symbols(const std::string &uri, AppState &appstate) {
     return symbols;
 }
 
-void find_completions(const SymbolMap &symbols, const std::string &prefix, std::vector<json> &out) {
-    for (auto &entry : symbols) {
-        auto &name = entry.first;
-        auto &symbol = entry.second;
+void find_completions(const SymbolMap &symbols, const std::string & /*prefix*/, std::vector<json> &out) {
+    for (const auto &entry : symbols) {
+        const auto &name = entry.first;
+        const auto &symbol = entry.second;
         out.push_back(json{
             {"label", name},
             {"kind", symbol.kind == Symbol::Unknown ? json(nullptr) : json(symbol.kind)},
@@ -248,11 +253,11 @@ void find_completions(const SymbolMap &symbols, const std::string &prefix, std::
     }
 }
 
-json get_completions(const std::string &uri, int line, int character, AppState &appstate) {
+auto get_completions(const std::string &uri, int line, int character, AppState &appstate) -> json {
     const std::string &document = appstate.workspace.documents()[uri];
-    int offset = find_position_offset(document.c_str(), line, character);
-    int word_start = get_last_word_start(document.c_str(), offset);
-    int length = offset - word_start;
+    int const offset = find_position_offset(document.c_str(), line, character);
+    int const word_start = get_last_word_start(document.c_str(), offset);
+    int const length = offset - word_start;
 
     if (length <= 0) {
         // no word under the cursor.
@@ -268,15 +273,15 @@ json get_completions(const std::string &uri, int line, int character, AppState &
     return matches;
 }
 
-std::optional<std::string> get_word_under_cursor(
+auto get_word_under_cursor(
     const std::string &uri,
     int line, int character,
-    AppState &appstate) {
+    AppState &appstate) -> std::optional<std::string> {
     const std::string &document = appstate.workspace.documents()[uri];
-    int offset = find_position_offset(document.c_str(), line, character);
-    int word_start = get_last_word_start(document.c_str(), offset);
-    int word_end = get_word_end(document.c_str(), word_start);
-    int length = word_end - word_start;
+    int const offset = find_position_offset(document.c_str(), line, character);
+    int const word_start = get_last_word_start(document.c_str(), offset);
+    int const word_end = get_word_end(document.c_str(), word_start);
+    int const length = word_end - word_start;
 
     if (length <= 0) {
         // no word under the cursor.
@@ -286,36 +291,41 @@ std::optional<std::string> get_word_under_cursor(
     return document.substr(word_start, length);
 }
 
-json get_hover_info(const std::string &uri, int line, int character, AppState &appstate) {
+auto get_hover_info(const std::string &uri, int line, int character, AppState &appstate) -> json {
     auto word = get_word_under_cursor(uri, line, character, appstate);
-    if (!word)
+    if (!word) {
         return nullptr;
+    }
 
     auto symbols = get_symbols(uri, appstate);
     auto symbol = symbols.find(*word);
-    if (symbol == symbols.end())
+    if (symbol == symbols.end()) {
         return nullptr;
+    }
 
     return json{
         {"contents", {{"language", "glsl"}, {"value", symbol->second.details}}}};
 }
 
-json get_definition(const std::string &uri, int line, int character, AppState &appstate) {
+auto get_definition(const std::string &uri, int line, int character, AppState &appstate) -> json {
     auto word = get_word_under_cursor(uri, line, character, appstate);
-    if (!word)
+    if (!word) {
         return nullptr;
+    }
 
     auto symbols = get_symbols(uri, appstate);
     auto symbol_iter = symbols.find(*word);
-    if (symbol_iter == symbols.end())
+    if (symbol_iter == symbols.end()) {
         return nullptr;
+    }
     auto symbol = symbol_iter->second;
-    if (symbol.location.uri == nullptr)
+    if (symbol.location.uri == nullptr) {
         return nullptr;
+    }
 
     const std::string &text = appstate.workspace.documents()[symbol.location.uri];
     auto position = find_source_location(text.c_str(), symbol.location.offset);
-    int length = word->size();
+    int const length = static_cast<int>(word->size());
 
     json start{
         {"line", position.line},
@@ -331,7 +341,7 @@ json get_definition(const std::string &uri, int line, int character, AppState &a
     };
 }
 
-std::optional<std::string> handle_message(const MessageBuffer &message_buffer, AppState &appstate) {
+auto handle_message(const MessageBuffer &message_buffer, AppState &appstate) -> std::optional<std::string> {
     json body = message_buffer.body();
 
     if (body["method"] == "initialized") {
@@ -388,7 +398,7 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
                  {"experimental", {}},
              }}};
 
-        json result_body{
+        json const result_body{
             {"id", body["id"]},
             {"result", result}};
         return make_response(result_body);
@@ -401,7 +411,7 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
         if (diagnostics.empty()) {
             diagnostics = json::array();
         }
-        json result_body{
+        json const result_body{
             {"method", "textDocument/publishDiagnostics"},
             {"params", {
                            {"uri", uri},
@@ -413,12 +423,12 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
         auto change = body["params"]["contentChanges"][0]["text"];
         appstate.workspace.change_document(uri, change);
 
-        std::string document = appstate.workspace.documents()[uri];
+        std::string const document = appstate.workspace.documents()[uri];
         json diagnostics = get_diagnostics(uri, document, appstate);
         if (diagnostics.empty()) {
             diagnostics = json::array();
         }
-        json result_body{
+        json const result_body{
             {"method", "textDocument/publishDiagnostics"},
             {"params", {
                            {"uri", uri},
@@ -428,36 +438,36 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
     } else if (body["method"] == "textDocument/completion") {
         auto uri = body["params"]["textDocument"]["uri"];
         auto position = body["params"]["position"];
-        int line = position["line"];
-        int character = position["character"];
+        int const line = position["line"];
+        int const character = position["character"];
 
         json completions = get_completions(uri, line, character, appstate);
 
-        json result_body{
+        json const result_body{
             {"id", body["id"]},
             {"result", completions}};
         return make_response(result_body);
     } else if (body["method"] == "textDocument/hover") {
         auto uri = body["params"]["textDocument"]["uri"];
         auto position = body["params"]["position"];
-        int line = position["line"];
-        int character = position["character"];
+        int const line = position["line"];
+        int const character = position["character"];
 
         json hover = get_hover_info(uri, line, character, appstate);
 
-        json result_body{
+        json const result_body{
             {"id", body["id"]},
             {"result", hover}};
         return make_response(result_body);
     } else if (body["method"] == "textDocument/definition") {
         auto uri = body["params"]["textDocument"]["uri"];
         auto position = body["params"]["position"];
-        int line = position["line"];
-        int character = position["character"];
+        int const line = position["line"];
+        int const character = position["character"];
 
         json result = get_definition(uri, line, character, appstate);
 
-        json result_body{
+        json const result_body{
             {"id", body["id"]},
             {"result", result}};
         return make_response(result_body);
@@ -471,7 +481,7 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
             {"code", -32002},
             {"message", "Server not yet initialized."},
         };
-        json result_body{
+        json const result_body{
             {"error", error}};
         return make_response(result_body);
     }
@@ -479,7 +489,7 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
     // If we don't know the method requested, we end up here.
     if (body.count("method") == 1) {
         // Requests have an ID field, but notifications do not.
-        bool is_notification = body.find("id") == body.end();
+        bool const is_notification = body.find("id") == body.end();
         if (is_notification) {
             // We don't have to respond to notifications. So don't error on
             // notifications we don't recognize.
@@ -491,7 +501,7 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
             {"code", -32601},
             {"message", fmt::format("Method '{}' not supported.", body["method"].get<std::string>())},
         };
-        json result_body{
+        json const result_body{
             {"id", body["id"]},
             {"error", error},
         };
@@ -503,7 +513,7 @@ std::optional<std::string> handle_message(const MessageBuffer &message_buffer, A
         {"code", -32700},
         {"message", "Couldn't parse message."},
     };
-    json result_body{
+    json const result_body{
         {"error", error}};
     return make_response(result_body);
 }
@@ -512,9 +522,9 @@ void ev_handler(struct mg_connection *c, int ev, void *p) {
     AppState &appstate = *static_cast<AppState *>(c->mgr->user_data);
 
     if (ev == MG_EV_HTTP_REQUEST) {
-        struct http_message *hm = (struct http_message *)p;
+        auto *hm = (struct http_message *)p;
 
-        std::string content = hm->message.p;
+        std::string const content = hm->message.p;
 
         MessageBuffer message_buffer;
         message_buffer.handle_string(content);
@@ -536,7 +546,7 @@ void ev_handler(struct mg_connection *c, int ev, void *p) {
 
             auto message = handle_message(message_buffer, appstate);
             if (message.has_value()) {
-                std::string response = message.value();
+                std::string const response = message.value();
                 mg_send_head(c, 200, response.length(), "Content-Type: text/plain");
                 mg_printf(c, "%.*s", static_cast<int>(response.length()), response.c_str());
                 if (appstate.use_logfile && appstate.verbose) {
@@ -557,7 +567,7 @@ const auto getSpvRules = []() {
     return EShMessages(EShMsgSpvRules);
 };
 
-int main(int argc, char *argv[]) {
+auto main(int /*argc*/, char * /*argv*/[]) -> int {
     CLI::App app{"GLSL Language Server"};
 
     bool use_stdin = false;
@@ -571,7 +581,7 @@ int main(int argc, char *argv[]) {
     std::string symbols_path;
     std::string diagnostic_path;
 
-    auto stdin_option = app.add_flag("--stdin", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
+    auto *stdin_option = app.add_flag("--stdin", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
     app.add_flag("-v,--verbose", verbose, "Enable verbose logging");
     app.add_option("-l,--log", logfile, "Log file");
     app.add_option("--debug-symbols", symbols_path, "Print the list of symbols for the given file");
@@ -587,11 +597,11 @@ int main(int argc, char *argv[]) {
                    "    [spv1.0 spv1.1 spv1.2 spv1.3 spv1.4 spv1.5 spv1.6]",
                    true);
 
-    try {
-        app.parse(argc, argv);
-    } catch (const CLI::ParseError &e) {
-        return app.exit(e);
-    }
+    // try {
+    //     app.parse(argc, argv);
+    // } catch (const CLI::ParseError &e) {
+    //     return app.exit(e);
+    // }
 
     AppState appstate;
     appstate.verbose = verbose;
@@ -657,39 +667,39 @@ int main(int argc, char *argv[]) {
     glslang::InitializeProcess();
 
     if (!symbols_path.empty()) {
-        std::string contents = *read_file_to_string(symbols_path.c_str());
-        std::string uri = make_path_uri(symbols_path);
+        std::string const contents = *read_file_to_string(symbols_path.c_str());
+        std::string const uri = make_path_uri(symbols_path);
         appstate.workspace.add_document(uri, contents);
         auto symbols = get_symbols(uri, appstate);
         for (auto &entry : symbols) {
             const auto &name = entry.first;
             const auto &symbol = entry.second;
 
-            if (symbol.location.uri) {
-                const auto &contents = appstate.workspace.documents()[symbol.location.uri];
-                auto position = find_source_location(contents.c_str(), symbol.location.offset);
+            if (symbol.location.uri != nullptr) {
+                const auto &doc_contents = appstate.workspace.documents()[symbol.location.uri];
+                auto position = find_source_location(doc_contents.c_str(), symbol.location.offset);
                 fmt::print("{} : {}:{} : {}\n", name, position.line, position.character, symbol.details);
             } else {
                 fmt::print("{} : @{} : {}\n", name, symbol.location.offset, symbol.details);
             }
         }
     } else if (!diagnostic_path.empty()) {
-        std::string contents = *read_file_to_string(diagnostic_path.c_str());
-        std::string uri = make_path_uri(diagnostic_path);
+        std::string const contents = *read_file_to_string(diagnostic_path.c_str());
+        std::string const uri = make_path_uri(diagnostic_path);
         appstate.workspace.add_document(uri, contents);
         auto diagnostics = get_diagnostics(uri, contents, appstate);
         fmt::print("diagnostics: {}\n", diagnostics.dump(4));
     } else if (!use_stdin) {
-        struct mg_mgr mgr;
-        struct mg_connection *nc;
-        struct mg_bind_opts bind_opts;
+        struct mg_mgr mgr {};
+        struct mg_connection *nc = nullptr;
+        struct mg_bind_opts bind_opts {};
         std::memset(&bind_opts, 0, sizeof(bind_opts));
         bind_opts.user_data = &appstate;
 
-        mg_mgr_init(&mgr, NULL);
+        mg_mgr_init(&mgr, nullptr);
         fmt::print("Starting web server on port {}\n", port);
         nc = mg_bind_opt(&mgr, std::to_string(port).c_str(), ev_handler, bind_opts);
-        if (nc == NULL) {
+        if (nc == nullptr) {
             return 1;
         }
 
@@ -701,7 +711,7 @@ int main(int argc, char *argv[]) {
         }
         mg_mgr_free(&mgr);
     } else {
-        char c;
+        char c = 0;
         MessageBuffer message_buffer;
         while (std::cin.get(c)) {
             message_buffer.handle_char(c);

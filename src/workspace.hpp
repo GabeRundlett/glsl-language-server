@@ -9,13 +9,13 @@ class Workspace {
     Workspace();
     virtual ~Workspace();
 
-    bool is_initialized();
+    bool is_initialized() const;
     void set_initialized(bool new_value);
 
     std::map<std::string, std::string> &documents();
-    void add_document(std::string key, std::string text);
-    bool remove_document(std::string key);
-    bool change_document(std::string key, std::string text);
+    void add_document(const std::string &key, std::string text);
+    bool remove_document(const std::string &key);
+    bool change_document(const std::string &key, std::string text);
 
   private:
     bool m_initialized = false;

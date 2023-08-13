@@ -3,47 +3,49 @@
 #include <regex>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
-std::vector<std::string> split_string(const std::string &string_to_split, const std::string &pattern) {
+auto split_string(const std::string &string_to_split, const std::string &pattern) -> std::vector<std::string> {
     std::vector<std::string> result;
 
     const std::regex re(pattern);
     std::sregex_token_iterator iter(string_to_split.begin(), string_to_split.end(), re, -1);
 
-    for (std::sregex_token_iterator end; iter != end; ++iter) {
+    for (std::sregex_token_iterator const end; iter != end; ++iter) {
         result.push_back(iter->str());
     }
 
     return result;
 }
 
-std::string trim_right(const std::string &s, const std::string &delimiters = " \f\n\r\t\v") {
+auto trim_right(const std::string &s, const std::string &delimiters = " \f\n\r\t\v") -> std::string {
     return s.substr(0, s.find_last_not_of(delimiters) + 1);
 }
 
-std::string trim_left(const std::string &s, const std::string &delimiters = " \f\n\r\t\v") {
+auto trim_left(const std::string &s, const std::string &delimiters = " \f\n\r\t\v") -> std::string {
     return s.substr(s.find_first_not_of(delimiters));
 }
 
-std::string trim(const std::string &s, const std::string &delimiters = " \f\n\r\t\v") {
+auto trim(const std::string &s, const std::string &delimiters = " \f\n\r\t\v") -> std::string {
     return trim_left(trim_right(s, delimiters), delimiters);
 }
 
 /// Returns the byte offset for the given character on the given line.
 // FIXME: use UTF-16 offsets
 // https://fasterthanli.me/articles/the-bottom-emoji-breaks-rust-analyzer
-int find_position_offset(const char *text, int line, int character) {
+auto find_position_offset(const char *text, int line, int character) -> int {
     int offset = 0;
     while (line > 0) {
-        while (text[offset] && text[offset] != '\n')
+        while ((text[offset] != 0) && text[offset] != '\n') {
             offset += 1;
-        offset += text[offset] == '\n';
+        }
+        offset += static_cast<int>(text[offset] == '\n');
         line -= 1;
     }
 
-    while (character > 0 && text[offset] && text[offset] != '\n') {
+    while (character > 0 && (text[offset] != 0) && text[offset] != '\n') {
         offset += 1;
         character -= 1;
     }
@@ -54,11 +56,11 @@ int find_position_offset(const char *text, int line, int character) {
 /// Given a byte offset into a file, returns the corresponding line and column.
 // FIXME: use UTF-16 offsets
 // https://fasterthanli.me/articles/the-bottom-emoji-breaks-rust-analyzer
-SourceFileLocation find_source_location(const char *text, int offset) {
+auto find_source_location(const char *text, int offset) -> SourceFileLocation {
     SourceFileLocation location{0, 0};
     const char *p = text;
     const char *end = text + offset;
-    while (*p && p < end) {
+    while ((*p != 0) && p < end) {
         if (*p == '\n') {
             location.line += 1;
             location.character = 0;
@@ -71,17 +73,17 @@ SourceFileLocation find_source_location(const char *text, int offset) {
 }
 
 /// Returns `true` if the character may start an identifier.
-bool is_identifier_start_char(char c) {
+auto is_identifier_start_char(char c) -> bool {
     return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_';
 }
 
 /// Returns `true` if the character may be part of an identifier.
-bool is_identifier_char(char c) {
+auto is_identifier_char(char c) -> bool {
     return is_identifier_start_char(c) || ('0' <= c && c <= '9');
 }
 
 /// Returns the offset in `text` where the last word started.
-int get_last_word_start(const char *text, int offset) {
+auto get_last_word_start(const char *text, int offset) -> int {
     int start = offset;
     while (start > 0 && is_identifier_char(text[start - 1])) {
         start -= 1;
@@ -97,39 +99,36 @@ int get_last_word_start(const char *text, int offset) {
     return start;
 }
 
-int get_word_end(const char *text, int start) {
+auto get_word_end(const char *text, int start) -> int {
     int end = start;
-    while (text[end] && is_identifier_char(text[end]))
+    while ((text[end] != 0) && is_identifier_char(text[end])) {
         end++;
+    }
     return end;
 }
 
-std::optional<std::string> read_file_to_string(const char *path) {
-    FILE *f = fopen(path, "r");
-    if (!f)
+auto read_file_to_string(const char *path) -> std::optional<std::string> {
+    auto ifs = std::ifstream{path};
+    if (!ifs.good()) {
         return std::nullopt;
-
-    fseek(f, 0, SEEK_END);
-    size_t size = ftell(f);
-
-    std::string contents;
-    contents.resize(size);
-
-    rewind(f);
-    size_t actual = fread(&contents[0], sizeof(char), size, f);
-    contents.resize(actual);
-
-    return contents;
+    }
+    auto str = std::string{};
+    ifs.seekg(0, std::ios::end);
+    str.reserve(static_cast<size_t>(ifs.tellg()));
+    ifs.seekg(0, std::ios::beg);
+    str.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+    return {str};
 }
 
-std::string make_path_uri(const std::string &path) {
+auto make_path_uri(const std::string &path) -> std::string {
     return "file://" + fs::absolute(path).string();
 }
 
-const char *strip_prefix(const char *prefix, const char *haystack) {
-    while (*prefix) {
-        if (*prefix != *haystack)
+auto strip_prefix(const char *prefix, const char *haystack) -> const char * {
+    while (*prefix != 0) {
+        if (*prefix != *haystack) {
             return nullptr;
+        }
         prefix++;
         haystack++;
     }
