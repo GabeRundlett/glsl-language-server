@@ -1,15 +1,11 @@
-#include "CLI/CLI.hpp"
-
-#include "fmt/format.h"
-#include "fmt/ostream.h"
-
-#include "nlohmann/json.hpp"
-
-#include "mongoose.h"
-
-#include "ResourceLimits.h"
-#include "ShaderLang.h"
-#include "Initialize.h"
+#include <CLI/CLI.hpp>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
+#include <nlohmann/json.hpp>
+#include <mongoose.h>
+#include <glslang/Public/ResourceLimits.h>
+#include <glslang/Public/ShaderLang.h>
+#include <glslang/MachineIndependent/Initialize.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -68,9 +64,9 @@ EShLanguage find_language(const std::string& name)
     // This function attempts to support the most common ones, by checking if the filename ends with one of a list of known extensions.
     // If a ".glsl" extension is found initially, it is first removed to allow for e.g. vs.glsl/vert.glsl naming.
     auto path = fs::path(name);
-    auto ext = std::string(path.extension());
+    auto ext = path.extension().string();
     if (ext == ".glsl")
-        ext = path.replace_extension();
+        ext = path.replace_extension().string();
     if (ext.ends_with("vert") || ext.ends_with("vs") || ext.ends_with("vsh"))
         return EShLangVertex;
     else if (ext.ends_with("tesc"))

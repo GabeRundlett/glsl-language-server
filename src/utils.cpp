@@ -125,7 +125,7 @@ std::optional<std::string> read_file_to_string(const char* path) {
 
 
 std::string make_path_uri(const std::string& path) {
-    return "file://" + std::string(fs::absolute(path));
+    return "file://" + fs::absolute(path).string();
 }
 
 const char* strip_prefix(const char* prefix, const char* haystack) {

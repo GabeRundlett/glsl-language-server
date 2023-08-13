@@ -16,18 +16,30 @@ Currently this LSP implementation can be interfaced with using either HTTP or st
 - Workspace symbols
 - Find references
 
-
 ## Compile
 
-    git submodule update --init
-    cmake -Bbuild -GNinja
-    ninja -Cbuild
+Decide on a toolchain and config, then run the below commands to build/install
 
-You can also use the `Makefile` in the project root which is provided for convenience.
+`toolchain` recommended options:
+ - `cl-x86_64-windows-msvc`  (Windows)
+ - `gcc-x86_64-linux-gnu`    (Linux)
+ - `clang-aarch64-macos-gnu` (M1/M2 MacOS)
+
+`config` options:
+ - `debug`
+ - `relwithdebinfo`
+ - `release`
+
+```
+cmake --preset=<toolchain>
+cmake --build --preset=<toolchain>-<config>
+```
 
 ## Install
 
-    ninja -Cbuild install
+```
+cmake --install ./.out/<preset>/
+```
 
 ## Usage
 

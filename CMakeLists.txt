@@ -1,61 +1,26 @@
-cmake_minimum_required(VERSION 3.0.0)
-project(glsl-language-server)
+cmake_minimum_required(VERSION 3.21.0)
+project(glsl-language-server VERSION 1.0.0)
+
+include(cmake/warnings.cmake)
+
+file(GLOB SOURCES src/*.cpp)
+add_executable(glslls ${SOURCES})
+target_compile_features(glslls PRIVATE cxx_std_20)
 
 find_package(Threads REQUIRED)
-
-add_subdirectory(externals/glslang EXCLUDE_FROM_ALL)
-include_directories(
-    externals/glslang/
-    externals/glslang/glslang/Public
-    externals/glslang/glslang/MachineIndependent
-    externals/glslang/StandAlone
-)
-
-add_subdirectory(externals/fmt EXCLUDE_FROM_ALL)
-include_directories(
-    externals/fmt
-)
-
-add_subdirectory(externals/json EXCLUDE_FROM_ALL)
-include_directories(
-    externals/json/include
-)
-
-add_library(mongoose externals/mongoose/mongoose.c)
-include_directories(
-    externals/mongoose
-)
-
-include_directories(
-    externals/CLI11/include)
-
-set(CMAKE_CXX_STANDARD 20)
-
-file(GLOB SOURCES
-    src/*.cpp
-)
-
-include_directories(src)
-add_executable(glslls
-    ${SOURCES}
-    externals/glslang/StandAlone/ResourceLimits.cpp
-)
-
-if (CMAKE_SYSTEM_NAME MATCHES Darwin OR CMAKE_SYSTEM_NAME MATCHES FreeBSD)
-    set(stdfs)
-else()
-    set(stdfs stdc++fs)
-endif()
+find_package(CLI11 CONFIG REQUIRED)
+find_package(glslang CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+find_package(unofficial-mongoose CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 target_link_libraries(glslls
-    ${CMAKE_THREAD_LIBS_INIT}
-    glslang
-    nlohmann_json
-    mongoose
-    ${stdfs}
-    SPIRV
-    fmt::fmt-header-only
+    Threads::Threads
+    CLI11::CLI11
+    fmt::fmt
+    glslang::OSDependent glslang::glslang glslang::MachineIndependent glslang::GenericCodeGen glslang::glslang-default-resource-limits glslang::OGLCompiler glslang::SPVRemapper glslang::SPIRV glslang::HLSL
+    unofficial::mongoose::mongoose
+    nlohmann_json::nlohmann_json
 )
 
-install(TARGETS glslls
-        RUNTIME DESTINATION bin)
+install(TARGETS glslls RUNTIME DESTINATION bin)
