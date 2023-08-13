@@ -80,7 +80,7 @@ auto find_language(const std::string &name) -> EShLanguage {
     } else if (ext.ends_with("comp")) {
         return EShLangCompute;
     }
-    // throw std::invalid_argument("Unknown file extension!");
+    throw std::invalid_argument("Unknown file extension!");
     return {};
 }
 
@@ -567,7 +567,7 @@ const auto getSpvRules = []() {
     return EShMessages(EShMsgSpvRules);
 };
 
-auto main(int /*argc*/, char * /*argv*/[]) -> int {
+auto main(int argc, char * argv[]) -> int {
     CLI::App app{"GLSL Language Server"};
 
     bool use_stdin = false;
@@ -597,11 +597,11 @@ auto main(int /*argc*/, char * /*argv*/[]) -> int {
                    "    [spv1.0 spv1.1 spv1.2 spv1.3 spv1.4 spv1.5 spv1.6]",
                    true);
 
-    // try {
-    //     app.parse(argc, argv);
-    // } catch (const CLI::ParseError &e) {
-    //     return app.exit(e);
-    // }
+    try {
+        app.parse(argc, argv);
+    } catch (const CLI::ParseError &e) {
+        return app.exit(e);
+    }
 
     AppState appstate;
     appstate.verbose = verbose;
