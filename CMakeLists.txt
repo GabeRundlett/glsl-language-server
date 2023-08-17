@@ -20,7 +20,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 target_link_libraries(glslls
     Threads::Threads
     CLI11::CLI11
-    fmt::fmt
+    fmt::fmt-header-only
     glslang::OSDependent glslang::glslang glslang::MachineIndependent glslang::GenericCodeGen glslang::glslang-default-resource-limits glslang::OGLCompiler glslang::SPVRemapper glslang::SPIRV glslang::HLSL
     unofficial::mongoose::mongoose
     nlohmann_json::nlohmann_json

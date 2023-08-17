@@ -351,56 +351,52 @@ auto handle_message(const MessageBuffer &message_buffer, AppState &appstate) -> 
     if (body["method"] == "initialize") {
         appstate.workspace.set_initialized(true);
 
-        json text_document_sync{
-            {"openClose", true},
-            {"change", 1}, // Full sync
-            {"willSave", false},
-            {"willSaveWaitUntil", false},
-            {"save", {{"includeText", false}}},
-        };
+        json result{{
+            "capabilities",
+            {
+                {
+                    "textDocumentSync",
+                    {
+                        {"openClose", true},
+                        {"change", 1}, // Full sync
+                        {"willSave", false},
+                        {"willSaveWaitUntil", false},
+                        {"save", {{"includeText", false}}},
+                    },
+                },
+                {"hoverProvider", true},
+                {
+                    "completionProvider",
+                    {
+                        {"resolveProvider", false},
+                        {"triggerCharacters", json::array()},
+                    },
+                },
+                {"signatureHelpProvider", {{"triggerCharacters", json::array()}}},
+                {"definitionProvider", true},
+                {"referencesProvider", false},
+                {"documentHighlightProvider", false},
+                {"documentSymbolProvider", false},
+                {"workspaceSymbolProvider", false},
+                {"codeActionProvider", false},
+                {"codeLensProvider", {{"resolveProvider", false}}},
+                {"documentFormattingProvider", false},
+                {"documentRangeFormattingProvider", false},
+                {
+                    "documentOnTypeFormattingProvider",
+                    {
+                        {"firstTriggerCharacter", ""},
+                        {"moreTriggerCharacter", json::array()},
+                    },
+                },
+                {"renameProvider", false},
+                {"documentLinkProvider", {{"resolveProvider", false}}},
+                {"executeCommandProvider", {{"commands", json::array()}}},
+                {"experimental", {}},
+            },
+        }};
 
-        json completion_provider{
-            {"resolveProvider", false},
-            {"triggerCharacters", json::array()},
-        };
-        json signature_help_provider{
-            {"triggerCharacters", json::array()}};
-        json code_lens_provider{
-            {"resolveProvider", false}};
-        json document_on_type_formatting_provider{
-            {"firstTriggerCharacter", ""},
-            {"moreTriggerCharacter", json::array()},
-        };
-        json document_link_provider{
-            {"resolveProvider", false}};
-        json execute_command_provider{
-            {"commands", json::array()}};
-        json result{
-            {"capabilities",
-             {
-                 {"textDocumentSync", text_document_sync},
-                 {"hoverProvider", true},
-                 {"completionProvider", completion_provider},
-                 {"signatureHelpProvider", signature_help_provider},
-                 {"definitionProvider", true},
-                 {"referencesProvider", false},
-                 {"documentHighlightProvider", false},
-                 {"documentSymbolProvider", false},
-                 {"workspaceSymbolProvider", false},
-                 {"codeActionProvider", false},
-                 {"codeLensProvider", code_lens_provider},
-                 {"documentFormattingProvider", false},
-                 {"documentRangeFormattingProvider", false},
-                 {"documentOnTypeFormattingProvider", document_on_type_formatting_provider},
-                 {"renameProvider", false},
-                 {"documentLinkProvider", document_link_provider},
-                 {"executeCommandProvider", execute_command_provider},
-                 {"experimental", {}},
-             }}};
-
-        json const result_body{
-            {"id", body["id"]},
-            {"result", result}};
+        json const result_body{{"id", body["id"]}, {"result", result}};
         return make_response(result_body);
     } else if (body["method"] == "textDocument/didOpen") {
         auto uri = body["params"]["textDocument"]["uri"];
@@ -567,7 +563,7 @@ const auto getSpvRules = []() {
     return EShMessages(EShMsgSpvRules);
 };
 
-auto main(int argc, char * argv[]) -> int {
+auto main(int argc, char *argv[]) -> int {
     CLI::App app{"GLSL Language Server"};
 
     bool use_stdin = false;

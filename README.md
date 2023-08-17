@@ -18,6 +18,8 @@ Currently this LSP implementation can be interfaced with using either HTTP or st
 
 ## Compile
 
+To build this project, you just need a valid C++20 compiler, CMake, Ninja and finally vcpkg.
+
 Decide on a toolchain and config, then run the below commands to build/install
 
 `toolchain` recommended options:
