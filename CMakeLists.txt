@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21.0)
-project(glsl-language-server VERSION 1.0.0)
+project(glsl-language-server VERSION 1.1.0)
 
 include(cmake/warnings.cmake)
 
@@ -16,6 +16,12 @@ find_package(glslang CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(unofficial-mongoose CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+
+target_compile_definitions(glslls PRIVATE
+    GLSLLS_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    GLSLLS_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    GLSLLS_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+)
 
 target_link_libraries(glslls
     Threads::Threads

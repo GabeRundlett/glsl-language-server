@@ -568,6 +568,7 @@ auto main(int argc, char *argv[]) -> int {
 
     bool use_stdin = false;
     bool verbose = false;
+    bool version = false;
     uint16_t port = 61313;
     std::string logfile;
 
@@ -579,6 +580,7 @@ auto main(int argc, char *argv[]) -> int {
 
     auto *stdin_option = app.add_flag("--stdin", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
     app.add_flag("-v,--verbose", verbose, "Enable verbose logging");
+    app.add_flag("--version", version, "Request version");
     app.add_option("-l,--log", logfile, "Log file");
     app.add_option("--debug-symbols", symbols_path, "Print the list of symbols for the given file");
     app.add_option("--debug-diagnostic", diagnostic_path, "Debug diagnostic output for the given file");
@@ -597,6 +599,11 @@ auto main(int argc, char *argv[]) -> int {
         app.parse(argc, argv);
     } catch (const CLI::ParseError &e) {
         return app.exit(e);
+    }
+
+    if (version) {
+        fmt::print("glslls version {}.{}.{}\n", GLSLLS_VERSION_MAJOR, GLSLLS_VERSION_MINOR, GLSLLS_VERSION_PATCH);
+        return 0;
     }
 
     AppState appstate;
