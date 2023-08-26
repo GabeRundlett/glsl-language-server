@@ -578,7 +578,7 @@ auto main(int argc, char *argv[]) -> int {
     std::string symbols_path;
     std::string diagnostic_path;
 
-    auto *stdin_option = app.add_flag("--stdin", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
+    auto *stdin_option = app.add_flag("--stdio", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
     app.add_flag("-v,--verbose", verbose, "Enable verbose logging");
     app.add_flag("--version", version, "Request version");
     app.add_option("-l,--log", logfile, "Log file");
@@ -701,7 +701,7 @@ auto main(int argc, char *argv[]) -> int {
 
         mg_mgr_init(&mgr, nullptr);
         fmt::print("Starting web server on port {}\n", port);
-        nc = mg_bind_opt(&mgr, std::to_string(port).c_str(), ev_handler, bind_opts);
+        nc = mg_bind_opt(&mgr, fmt::format("localhost:{}", port).c_str(), ev_handler, bind_opts);
         if (nc == nullptr) {
             return 1;
         }
@@ -716,7 +716,28 @@ auto main(int argc, char *argv[]) -> int {
     } else {
         char c = 0;
         MessageBuffer message_buffer;
+
+#if _WIN32
+        // Get a handle to standard input.
+        HANDLE handle = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD old_mode{};
+        bool escape_codes = false;
+
+        // Get the old mode and enable escape code processing if everything works.
+        if (handle != INVALID_HANDLE_VALUE) {
+            if (GetConsoleMode(handle, &old_mode)) {
+                DWORD new_mode = old_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+                escape_codes = SetConsoleMode(handle, new_mode);
+            }
+        }
+#endif
+
         while (std::cin.get(c)) {
+#if _WIN32 // Figure out a better way
+            if (c == '\n')
+                message_buffer.handle_char('\r');
+#endif
+
             message_buffer.handle_char(c);
 
             if (message_buffer.message_completed()) {
@@ -747,6 +768,12 @@ auto main(int argc, char *argv[]) -> int {
                 message_buffer.clear();
             }
         }
+
+#if _WIN32
+        if (escape_codes) {
+            SetConsoleMode(handle, old_mode);
+        }
+#endif
     }
 
     if (appstate.use_logfile) {
