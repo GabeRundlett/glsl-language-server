@@ -1,0 +1,17 @@
+{
+    "name": "lspcpp",
+    "version-string": "0.1.0",
+    "description": "Unofficial LspCpp",
+    "dependencies": [
+        "boost",
+        "rapidjson",
+        {
+            "name": "vcpkg-cmake",
+            "host": true
+        },
+        {
+            "name": "vcpkg-cmake-config",
+            "host": true
+        }
+    ]
+}

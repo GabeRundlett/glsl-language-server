@@ -1,3 +1,32 @@
+#include "LibLsp/JsonRpc/Condition.h"
+#include "LibLsp/lsp/general/exit.h"
+#include "LibLsp/lsp/general/initialize.h"
+#include "LibLsp/lsp/ProtocolJsonHandler.h"
+#include "LibLsp/lsp/AbsolutePath.h"
+
+#include "LibLsp/lsp/textDocument/declaration_definition.h"
+#include "LibLsp/lsp/textDocument/signature_help.h"
+#include "LibLsp/lsp/textDocument/resolveCompletionItem.h"
+#include "LibLsp/lsp/textDocument/typeHierarchy.h"
+#include "LibLsp/lsp/textDocument/document_symbol.h"
+#include "LibLsp/lsp/textDocument/did_open.h"
+#include "LibLsp/lsp/textDocument/did_change.h"
+#include "LibLsp/lsp/textDocument/completion.h"
+#include "LibLsp/lsp/textDocument/hover.h"
+#include "LibLsp/lsp/textDocument/publishDiagnostics.h"
+
+#include <network/uri.hpp>
+
+#include "LibLsp/JsonRpc/Endpoint.h"
+#include "LibLsp/JsonRpc/stream.h"
+#include "LibLsp/JsonRpc/TcpServer.h"
+#include "LibLsp/lsp/workspace/execute_command.h"
+
+#include <boost/filesystem.hpp>
+#include <boost/asio.hpp>
+#include <iostream>
+#include <thread>
+
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
 #include <fmt/ostream.h>
@@ -44,19 +73,8 @@ struct AppState {
     bool verbose{};
     bool use_logfile{};
     std::ofstream logfile_stream;
-    TargetVersions target;
+    TargetVersions target{};
 };
-
-auto make_response(const json &response) -> std::string {
-    json content = response;
-    content["jsonrpc"] = "2.0";
-
-    std::string header;
-    header.append("Content-Length: " + std::to_string(content.dump(4).size()) + "\r\n");
-    header.append("Content-Type: application/vscode-jsonrpc;charset=utf-8\r\n");
-    header.append("\r\n");
-    return header + content.dump(4);
-}
 
 auto find_language(const std::string &name) -> EShLanguage {
     // As well as the one used in glslang, there are a number of different conventions used for naming GLSL shaders.
@@ -77,7 +95,7 @@ auto find_language(const std::string &name) -> EShLanguage {
         return EShLangGeometry;
     } else if (ext.ends_with("frag") || ext.ends_with("fs") || ext.ends_with("fsh")) {
         return EShLangFragment;
-    } else if (ext.ends_with("comp")) {
+    } else if (ext.ends_with("comp") || true) {
         return EShLangCompute;
     }
     throw std::invalid_argument("Unknown file extension!");
@@ -85,7 +103,7 @@ auto find_language(const std::string &name) -> EShLanguage {
 }
 
 auto get_diagnostics(std::string uri, const std::string &content,
-                     AppState &appstate) -> json {
+                     AppState &appstate) -> std::vector<lsDiagnostic> {
     FILE const fp_old = *stdout;
     *stdout = *fopen("/dev/null", "w");
     const auto &document = std::move(uri);
@@ -133,7 +151,7 @@ auto get_diagnostics(std::string uri, const std::string &content,
     auto error_lines = split_string(debug_log, "\n");
     auto content_lines = split_string(content, "\n");
 
-    json diagnostics;
+    std::vector<lsDiagnostic> diagnostics;
     for (const auto &error_line : error_lines) {
         std::regex_search(error_line, matches, re);
         if (matches.size() == 5) {
@@ -142,18 +160,13 @@ auto get_diagnostics(std::string uri, const std::string &content,
                 continue; // message is for another file
             }
 
-            json diagnostic;
+            lsDiagnostic diagnostic;
             std::string severity = matches[1];
-            int severity_no = -1;
+            lsDiagnosticSeverity severity_no = lsDiagnosticSeverity::Information;
             if (severity == "ERROR") {
-                severity_no = 1;
+                severity_no = lsDiagnosticSeverity::Error;
             } else if (severity == "WARNING") {
-                severity_no = 2;
-            }
-            if (severity_no == -1) {
-                if (appstate.use_logfile) {
-                    fmt::print(appstate.logfile_stream, "Error: Unknown severity '{}'\n", severity);
-                }
+                severity_no = lsDiagnosticSeverity::Warning;
             }
 
             std::string const message = trim(matches[4], " ");
@@ -182,26 +195,18 @@ auto get_diagnostics(std::string uri, const std::string &content,
                 end_char = static_cast<int>(source_line.length());
             }
 
-            json const range{
-                {"start", {
-                              {"line", line_no},
-                              {"character", start_char},
-                          }},
-                {"end", {
-                            {"line", line_no},
-                            {"character", end_char},
-                        }},
-            };
-            diagnostic["range"] = range;
-            diagnostic["severity"] = severity_no;
-            diagnostic["source"] = "glslang";
-            diagnostic["message"] = message;
+            auto start = lsPosition(line_no, start_char);
+            auto end = lsPosition(line_no, end_char);
+            diagnostic.range = lsRange(start, end);
+            diagnostic.severity = severity_no;
+            diagnostic.source = "glslang";
+            diagnostic.message = message;
             diagnostics.push_back(diagnostic);
         }
     }
-    if (appstate.use_logfile && appstate.verbose && !diagnostics.empty()) {
-        fmt::print(appstate.logfile_stream, "Sending diagnostics: {}\n", diagnostics.dump(4));
-    }
+    // if (appstate.use_logfile && appstate.verbose && !diagnostics.empty()) {
+    //     fmt::print(appstate.logfile_stream, "Sending diagnostics: {}\n", diagnostics.dump(4));
+    // }
     appstate.logfile_stream.flush();
     return diagnostics;
 }
@@ -241,19 +246,33 @@ auto get_symbols(const std::string &uri, AppState &appstate) -> SymbolMap {
     return symbols;
 }
 
-void find_completions(const SymbolMap &symbols, const std::string & /*prefix*/, std::vector<json> &out) {
+void find_completions(const SymbolMap &symbols, const std::string & /*prefix*/, CompletionList &out) {
     for (const auto &entry : symbols) {
         const auto &name = entry.first;
         const auto &symbol = entry.second;
-        out.push_back(json{
-            {"label", name},
-            {"kind", symbol.kind == Symbol::Unknown ? json(nullptr) : json(symbol.kind)},
-            {"detail", symbol.details},
-        });
+
+        // auto item = json{
+        //     {"label", name},
+        //     {"kind", symbol.kind == Symbol::Unknown ? json(nullptr) : json(symbol.kind)},
+        //     {"detail", symbol.details},
+        // };
+
+        auto item = lsCompletionItem{
+            .label = name,
+            .detail = symbol.details,
+        };
+
+        switch (symbol.kind) {
+        case Symbol::Function: item.kind = lsCompletionItemKind::Function; break;
+        case Symbol::Type: item.kind = lsCompletionItemKind::Class; break;
+        case Symbol::Constant: item.kind = lsCompletionItemKind::Constant; break;
+        }
+
+        out.items.push_back(item);
     }
 }
 
-auto get_completions(const std::string &uri, int line, int character, AppState &appstate) -> json {
+auto get_completions(const std::string &uri, int line, int character, AppState &appstate) -> CompletionList {
     const std::string &document = appstate.workspace.documents()[uri];
     int const offset = find_position_offset(document.c_str(), line, character);
     int const word_start = get_last_word_start(document.c_str(), offset);
@@ -261,16 +280,19 @@ auto get_completions(const std::string &uri, int line, int character, AppState &
 
     if (length <= 0) {
         // no word under the cursor.
-        return nullptr;
+        return {};
     }
 
     auto name = document.substr(word_start, length);
 
-    std::vector<json> matches;
-    auto symbols = get_symbols(uri, appstate);
-    find_completions(symbols, name, matches);
+    auto result = CompletionList{};
 
-    return matches;
+    // std::vector<json> matches;
+    auto symbols = get_symbols(uri, appstate);
+    find_completions(symbols, name, result);
+
+    // return matches;
+    return result;
 }
 
 auto get_word_under_cursor(
@@ -291,285 +313,107 @@ auto get_word_under_cursor(
     return document.substr(word_start, length);
 }
 
-auto get_hover_info(const std::string &uri, int line, int character, AppState &appstate) -> json {
+auto get_hover_info(const std::string &uri, int line, int character, AppState &appstate) -> TextDocumentHover::Result {
     auto word = get_word_under_cursor(uri, line, character, appstate);
     if (!word) {
-        return nullptr;
+        return {};
     }
 
     auto symbols = get_symbols(uri, appstate);
     auto symbol = symbols.find(*word);
     if (symbol == symbols.end()) {
-        return nullptr;
+        return {};
     }
 
-    return json{
-        {"contents", {{"language", "glsl"}, {"value", symbol->second.details}}}};
+    auto result = TextDocumentHover::Result{};
+    auto val = lsMarkedString{.language = std::string{"glsl"}, .value = symbol->second.details};
+    result.contents.first = std::vector{std::pair<boost::optional<std::string>, boost::optional<lsMarkedString>>{{}, val}};
+    // return json{{"contents", {{"language", "glsl"}, {"value", symbol->second.details}}}};
+    return result;
 }
 
-auto get_definition(const std::string &uri, int line, int character, AppState &appstate) -> json {
+auto get_definition(const std::string &uri, int line, int character, AppState &appstate) -> LocationListEither::Either {
     auto word = get_word_under_cursor(uri, line, character, appstate);
     if (!word) {
-        return nullptr;
+        return {};
     }
 
     auto symbols = get_symbols(uri, appstate);
     auto symbol_iter = symbols.find(*word);
     if (symbol_iter == symbols.end()) {
-        return nullptr;
+        return {};
     }
     auto symbol = symbol_iter->second;
     if (symbol.location.uri == nullptr) {
-        return nullptr;
+        return {};
     }
 
     const std::string &text = appstate.workspace.documents()[symbol.location.uri];
     auto position = find_source_location(text.c_str(), symbol.location.offset);
     int const length = static_cast<int>(word->size());
 
-    json start{
-        {"line", position.line},
-        {"character", position.character},
-    };
-    json end{
-        {"line", position.line},
-        {"character", position.character + length},
-    };
-    return json{
-        {"uri", symbol.location.uri},
-        {"range", {{"start", start}, {"end", end}}},
-    };
+    auto result = LocationListEither::Either{};
+
+    auto start = lsPosition(position.line, position.character);
+    auto end = lsPosition(position.line, position.character + length);
+    result.first = std::vector{lsLocation(AbsolutePath(symbol.location.uri), lsRange(start, end))};
+
+    return result;
 }
 
-auto handle_message(const MessageBuffer &message_buffer, AppState &appstate) -> std::optional<std::string> {
-    json body = message_buffer.body();
-
-    if (body["method"] == "initialized") {
-        return std::nullopt;
-    }
-
-    if (body["method"] == "initialize") {
-        appstate.workspace.set_initialized(true);
-
-        json result{{
-            "capabilities",
-            {
-                {
-                    "textDocumentSync",
-                    {
-                        {"openClose", true},
-                        {"change", 1}, // Full sync
-                        {"willSave", false},
-                        {"willSaveWaitUntil", false},
-                        {"save", {{"includeText", false}}},
-                    },
-                },
-                {"hoverProvider", true},
-                {
-                    "completionProvider",
-                    {
-                        {"resolveProvider", false},
-                        {"triggerCharacters", json::array()},
-                    },
-                },
-                {"signatureHelpProvider", {{"triggerCharacters", json::array()}}},
-                {"definitionProvider", true},
-                {"referencesProvider", false},
-                {"documentHighlightProvider", false},
-                {"documentSymbolProvider", false},
-                {"workspaceSymbolProvider", false},
-                {"codeActionProvider", false},
-                {"codeLensProvider", {{"resolveProvider", false}}},
-                {"documentFormattingProvider", false},
-                {"documentRangeFormattingProvider", false},
-                {
-                    "documentOnTypeFormattingProvider",
-                    {
-                        {"firstTriggerCharacter", ""},
-                        {"moreTriggerCharacter", json::array()},
-                    },
-                },
-                {"renameProvider", false},
-                {"documentLinkProvider", {{"resolveProvider", false}}},
-                {"executeCommandProvider", {{"commands", json::array()}}},
-                {"experimental", {}},
-            },
-        }};
-
-        json const result_body{{"id", body["id"]}, {"result", result}};
-        return make_response(result_body);
-    } else if (body["method"] == "textDocument/didOpen") {
-        auto uri = body["params"]["textDocument"]["uri"];
-        auto text = body["params"]["textDocument"]["text"];
-        appstate.workspace.add_document(uri, text);
-
-        json diagnostics = get_diagnostics(uri, text, appstate);
-        if (diagnostics.empty()) {
-            diagnostics = json::array();
-        }
-        json const result_body{
-            {"method", "textDocument/publishDiagnostics"},
-            {"params", {
-                           {"uri", uri},
-                           {"diagnostics", diagnostics},
-                       }}};
-        return make_response(result_body);
-    } else if (body["method"] == "textDocument/didChange") {
-        auto uri = body["params"]["textDocument"]["uri"];
-        auto change = body["params"]["contentChanges"][0]["text"];
-        appstate.workspace.change_document(uri, change);
-
-        std::string const document = appstate.workspace.documents()[uri];
-        json diagnostics = get_diagnostics(uri, document, appstate);
-        if (diagnostics.empty()) {
-            diagnostics = json::array();
-        }
-        json const result_body{
-            {"method", "textDocument/publishDiagnostics"},
-            {"params", {
-                           {"uri", uri},
-                           {"diagnostics", diagnostics},
-                       }}};
-        return make_response(result_body);
-    } else if (body["method"] == "textDocument/completion") {
-        auto uri = body["params"]["textDocument"]["uri"];
-        auto position = body["params"]["position"];
-        int const line = position["line"];
-        int const character = position["character"];
-
-        json completions = get_completions(uri, line, character, appstate);
-
-        json const result_body{
-            {"id", body["id"]},
-            {"result", completions}};
-        return make_response(result_body);
-    } else if (body["method"] == "textDocument/hover") {
-        auto uri = body["params"]["textDocument"]["uri"];
-        auto position = body["params"]["position"];
-        int const line = position["line"];
-        int const character = position["character"];
-
-        json hover = get_hover_info(uri, line, character, appstate);
-
-        json const result_body{
-            {"id", body["id"]},
-            {"result", hover}};
-        return make_response(result_body);
-    } else if (body["method"] == "textDocument/definition") {
-        auto uri = body["params"]["textDocument"]["uri"];
-        auto position = body["params"]["position"];
-        int const line = position["line"];
-        int const character = position["character"];
-
-        json result = get_definition(uri, line, character, appstate);
-
-        json const result_body{
-            {"id", body["id"]},
-            {"result", result}};
-        return make_response(result_body);
-    }
-
-    // If the workspace has not yet been initialized but the client sends a
-    // message that doesn't have method "initialize" then we'll return an error
-    // as per LSP spec.
-    if (body["method"] != "initialize" && !appstate.workspace.is_initialized()) {
-        json error{
-            {"code", -32002},
-            {"message", "Server not yet initialized."},
-        };
-        json const result_body{
-            {"error", error}};
-        return make_response(result_body);
-    }
-
-    // If we don't know the method requested, we end up here.
-    if (body.count("method") == 1) {
-        // Requests have an ID field, but notifications do not.
-        bool const is_notification = body.find("id") == body.end();
-        if (is_notification) {
-            // We don't have to respond to notifications. So don't error on
-            // notifications we don't recognize.
-            // https://microsoft.github.io/language-server-protocol/specifications/specification-3-15/#notificationMessage
-            return std::nullopt;
-        }
-
-        json error{
-            {"code", -32601},
-            {"message", fmt::format("Method '{}' not supported.", body["method"].get<std::string>())},
-        };
-        json const result_body{
-            {"id", body["id"]},
-            {"error", error},
-        };
-        return make_response(result_body);
-    }
-
-    // If we couldn't parse anything we end up here.
-    json error{
-        {"code", -32700},
-        {"message", "Couldn't parse message."},
+using namespace boost::asio::ip;
+using namespace std;
+class DummyLog : public lsp::Log {
+  public:
+    void log(Level level, std::wstring &&msg){
+        std::wcout << msg << std::endl;
     };
-    json const result_body{
-        {"error", error}};
-    return make_response(result_body);
-}
-
-void ev_handler(struct mg_connection *c, int ev, void *p) {
-    AppState &appstate = *static_cast<AppState *>(c->mgr->user_data);
-
-    if (ev == MG_EV_HTTP_REQUEST) {
-        auto *hm = (struct http_message *)p;
-
-        std::string const content = hm->message.p;
-
-        MessageBuffer message_buffer;
-        message_buffer.handle_string(content);
-
-        if (message_buffer.message_completed()) {
-            json body = message_buffer.body();
-            if (appstate.use_logfile) {
-                fmt::print(appstate.logfile_stream, ">>> Received message of type '{}'\n", body["method"].get<std::string>());
-                if (appstate.verbose) {
-                    fmt::print(appstate.logfile_stream, "Headers:\n");
-                    for (auto elem : message_buffer.headers()) {
-                        auto pretty_header = fmt::format("{}: {}\n", elem.first, elem.second);
-                        appstate.logfile_stream << pretty_header;
-                    }
-                    fmt::print(appstate.logfile_stream, "Body: \n{}\n\n", body.dump(4));
-                    fmt::print(appstate.logfile_stream, "Raw: \n{}\n\n", message_buffer.raw());
-                }
-            }
-
-            auto message = handle_message(message_buffer, appstate);
-            if (message.has_value()) {
-                std::string const response = message.value();
-                mg_send_head(c, 200, response.length(), "Content-Type: text/plain");
-                mg_printf(c, "%.*s", static_cast<int>(response.length()), response.c_str());
-                if (appstate.use_logfile && appstate.verbose) {
-                    fmt::print(appstate.logfile_stream, "<<< Sending message: \n{}\n\n", message.value());
-                }
-            }
-            appstate.logfile_stream.flush();
-            message_buffer.clear();
-        }
-    }
-}
-
-const auto getVulkanSpv = []() {
-    return EShMessages(EShMsgSpvRules | EShMsgVulkanRules);
+    void log(Level level, const std::wstring &msg){
+        std::wcout << msg << std::endl;
+    };
+    void log(Level level, std::string &&msg){
+        std::cout << msg << std::endl;
+    };
+    void log(Level level, const std::string &msg){
+        std::cout << msg << std::endl;
+    };
 };
 
-const auto getSpvRules = []() {
-    return EShMessages(EShMsgSpvRules);
+struct StdioServer {
+    StdioServer(const std::shared_ptr<MessageJsonHandler> &json_handler, const std::shared_ptr<Endpoint> &localEndPoint, lsp::Log &_log) : remote_end_point_(json_handler, localEndPoint, _log) {}
+    struct ostream : lsp::base_ostream<std::ostream> {
+        explicit ostream(std::ostream &_t) : base_ostream<std::ostream>(_t) {}
+        std::string what() override { return {}; }
+    };
+    struct istream : lsp::base_istream<std::istream> {
+        explicit istream(std::istream &_t) : base_istream<std::istream>(_t) {}
+        std::string what() override { return {}; }
+    };
+    std::shared_ptr<ostream> output = std::make_shared<ostream>(std::cout);
+    std::shared_ptr<istream> input = std::make_shared<istream>(std::cin);
+    RemoteEndPoint remote_end_point_;
+    void start() { remote_end_point_.startProcessingMessages(input, output); }
+    void stop() {}
+    auto &get_endpoint() { return remote_end_point_; }
+};
+
+struct TcpServer {
+    TcpServer(const std::shared_ptr<MessageJsonHandler> &json_handler, const std::shared_ptr<Endpoint> &localEndPoint, lsp::Log &_log) : server("127.0.0.1", "9333", json_handler, localEndPoint, _log) {}
+    lsp::TcpServer server;
+    void start() {
+        std::thread([&]() { server.run(); }).detach();
+    }
+    void stop() { server.stop(); }
+    auto &get_endpoint() { return server.point; }
 };
 
 auto main(int argc, char *argv[]) -> int {
     CLI::App app{"GLSL Language Server"};
 
-    bool use_stdin = false;
+    // bool use_stdin = false;
     bool verbose = false;
     bool version = false;
-    uint16_t port = 61313;
+    // uint16_t port = 61313;
     std::string logfile;
 
     std::string client_api = "vulkan1.3";
@@ -578,13 +422,13 @@ auto main(int argc, char *argv[]) -> int {
     std::string symbols_path;
     std::string diagnostic_path;
 
-    auto *stdin_option = app.add_flag("--stdio", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
+    // auto *stdin_option = app.add_flag("--stdio", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
     app.add_flag("-v,--verbose", verbose, "Enable verbose logging");
     app.add_flag("--version", version, "Request version");
     app.add_option("-l,--log", logfile, "Log file");
     app.add_option("--debug-symbols", symbols_path, "Print the list of symbols for the given file");
     app.add_option("--debug-diagnostic", diagnostic_path, "Debug diagnostic output for the given file");
-    app.add_option("-p,--port", port, "Port", true)->excludes(stdin_option);
+    // app.add_option("-p,--port", port, "Port", true)->excludes(stdin_option);
     app.add_option("--target-env", client_api,
                    "Target client environment.\n"
                    "    [vulkan vulkan1.0 vulkan1.1 vulkan1.2 vulkan1.3 opengl opengl4.5]",
@@ -602,24 +446,36 @@ auto main(int argc, char *argv[]) -> int {
     }
 
     if (version) {
-        fmt::print("glslls version {}.{}.{}\n", GLSLLS_VERSION_MAJOR, GLSLLS_VERSION_MINOR, GLSLLS_VERSION_PATCH);
+        fmt::print("glsl-language-server version {}.{}.{}\n", GLSLLS_VERSION_MAJOR, GLSLLS_VERSION_MINOR, GLSLLS_VERSION_PATCH);
         return 0;
     }
 
     AppState appstate;
+
+    DummyLog _log;
+    std::shared_ptr<lsp::ProtocolJsonHandler> protocol_json_handler = std::make_shared<lsp::ProtocolJsonHandler>();
+    std::shared_ptr<GenericEndpoint> endpoint = std::make_shared<GenericEndpoint>(_log);
+
+    auto server = TcpServer(protocol_json_handler, endpoint, _log);
+
+    Condition<bool> esc_event;
+
     appstate.verbose = verbose;
     appstate.use_logfile = !logfile.empty();
     if (appstate.use_logfile) {
         appstate.logfile_stream.open(logfile);
     }
 
+    const auto getVulkanSpv = []() {
+        return EShMessages(EShMsgSpvRules | EShMsgVulkanRules);
+    };
+
+    const auto getSpvRules = []() {
+        return EShMessages(EShMsgSpvRules);
+    };
+
     if (!client_api.empty()) {
-        if (client_api == "vulkan1.3" || client_api == "vulkan") {
-            appstate.target.client_api = glslang::EShClientVulkan;
-            appstate.target.client_api_version = glslang::EShTargetVulkan_1_3;
-            appstate.target.spv_version = glslang::EShTargetSpv_1_6;
-            appstate.target.options = getVulkanSpv();
-        } else if (client_api == "vulkan1.2") {
+        if (client_api == "vulkan1.2") {
             appstate.target.client_api = glslang::EShClientVulkan;
             appstate.target.client_api_version = glslang::EShTargetVulkan_1_2;
             appstate.target.spv_version = glslang::EShTargetSpv_1_5;
@@ -638,18 +494,18 @@ auto main(int argc, char *argv[]) -> int {
             appstate.target.client_api = glslang::EShClientOpenGL;
             appstate.target.client_api_version = glslang::EShTargetOpenGL_450;
             appstate.target.spv_version = glslang::EShTargetSpv_1_3;
-        } else {
-            fmt::print("unknown client api: {}\n", client_api);
-            return 1;
+        } else if (client_api == "vulkan1.3" || client_api == "vulkan" || true) {
+            appstate.target.client_api = glslang::EShClientVulkan;
+            appstate.target.client_api_version = glslang::EShTargetVulkan_1_3;
+            appstate.target.spv_version = glslang::EShTargetSpv_1_6;
+            appstate.target.options = getVulkanSpv();
         }
     }
 
     if (!spirv_version.empty()) {
         appstate.target.options = getSpvRules();
 
-        if (spirv_version == "spv1.6") {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_6;
-        } else if (spirv_version == "spv1.5") {
+        if (spirv_version == "spv1.5") {
             appstate.target.spv_version = glslang::EShTargetSpv_1_5;
         } else if (spirv_version == "spv1.4") {
             appstate.target.spv_version = glslang::EShTargetSpv_1_4;
@@ -661,126 +517,121 @@ auto main(int argc, char *argv[]) -> int {
             appstate.target.spv_version = glslang::EShTargetSpv_1_1;
         } else if (spirv_version == "spv1.0") {
             appstate.target.spv_version = glslang::EShTargetSpv_1_0;
-        } else {
-            fmt::print("unknown SPIR-V version: {}\n", spirv_version);
-            return 1;
+        } else if (spirv_version == "spv1.6" || true) {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_6;
         }
     }
+
+#define HANDLE_MONITOR(monitor)                                        \
+    if (monitor && monitor()) {                                        \
+        _log.info("textDocument request had been canceled.");          \
+        Rsp_Error rsp;                                                 \
+        rsp.error.code = lsErrorCodes::RequestCancelled;               \
+        rsp.error.message = "textDocument request had been canceled."; \
+        return rsp;                                                    \
+    }
+
+    auto &server_point = server.get_endpoint();
+
+    server_point.registerHandler(
+        [&](const td_initialize::request &req)
+            -> lsp::ResponseOrError<td_initialize::response> {
+            td_initialize::response rsp;
+
+            rsp.result.capabilities.textDocumentSync =
+                std::pair<boost::optional<lsTextDocumentSyncKind>, boost::optional<lsTextDocumentSyncOptions>>{
+                    lsTextDocumentSyncKind::Full,
+                    lsTextDocumentSyncOptions{
+                        .openClose = true,
+                        .change = lsTextDocumentSyncKind::Full,
+                        .willSave = false,
+                        .willSaveWaitUntil = false,
+                        .save = {},
+                    },
+                };
+            rsp.result.capabilities.hoverProvider = true;
+            rsp.result.capabilities.completionProvider = lsCompletionOptions{
+                .resolveProvider = false,
+                .triggerCharacters = std::vector<std::string>{},
+            };
+            rsp.result.capabilities.definitionProvider = {true, {}};
+
+            // rsp.result.capabilities.referencesProvider = false;
+            // rsp.result.capabilities.documentHighlightProvider = false;
+            // rsp.result.capabilities.documentSymbolProvider = false;
+            // rsp.result.capabilities.workspaceSymbolProvider = false;
+            // rsp.result.capabilities.codeActionProvider = false;
+            // rsp.result.capabilities.codeLensProvider = CodeLensOptions{
+            //     .resolveProvider = false,
+            // };
+            // rsp.result.capabilities.documentFormattingProvider = false;
+            // rsp.result.capabilities.documentRangeFormattingProvider = false;
+            // rsp.result.capabilities.renameProvider = false;
+
+            return rsp;
+        });
+    server_point.registerHandler([&](Notify_Exit::notify &notify) {
+        esc_event.notify(std::make_unique<bool>(true));
+    });
+
+    server_point.registerHandler([&](Notify_TextDocumentDidOpen::notify &notify) {
+        auto uri = notify.params.textDocument.uri.GetAbsolutePath();
+        auto text = notify.params.textDocument.text + "\n ";
+        appstate.workspace.add_document(uri, text);
+
+        auto response = Notify_TextDocumentPublishDiagnostics::notify{};
+        response.params.uri = AbsolutePath(uri);
+        response.params.diagnostics = get_diagnostics(uri, text, appstate);
+        server_point.send(response);
+    });
+    server_point.registerHandler([&](Notify_TextDocumentDidChange::notify &notify) {
+        auto uri = notify.params.textDocument.uri.GetAbsolutePath();
+        auto change = notify.params.contentChanges[0].text + "\n ";
+        appstate.workspace.change_document(uri, change);
+        std::string const document = appstate.workspace.documents()[uri];
+
+        auto response = Notify_TextDocumentPublishDiagnostics::notify{};
+        response.params.uri = AbsolutePath(uri);
+        response.params.diagnostics = get_diagnostics(uri, change, appstate);
+        server_point.send(response);
+    });
+    server_point.registerHandler([&](const td_completion::request &req, const CancelMonitor &monitor) -> lsp::ResponseOrError<td_completion::response> {
+        HANDLE_MONITOR(monitor)
+        td_completion::response rsp;
+        rsp.id = req.id;
+        auto uri = req.params.textDocument.uri.GetAbsolutePath();
+        int const line = req.params.position.line;
+        int const character = req.params.position.character;
+        rsp.result = get_completions(uri, line, character, appstate);
+        return rsp;
+    });
+    server_point.registerHandler([&](const td_hover::request &req, const CancelMonitor &monitor) -> lsp::ResponseOrError<td_hover::response> {
+        HANDLE_MONITOR(monitor)
+        td_hover::response rsp;
+        rsp.id = req.id;
+        auto uri = req.params.textDocument.uri.GetAbsolutePath();
+        int const line = req.params.position.line;
+        int const character = req.params.position.character;
+        rsp.result = get_hover_info(uri, line, character, appstate);
+        return rsp;
+    });
+    server_point.registerHandler([&](const td_definition::request &req, const CancelMonitor &monitor) -> lsp::ResponseOrError<td_definition::response> {
+        // std::this_thread::sleep_for(std::chrono::seconds(8));
+        HANDLE_MONITOR(monitor)
+        td_definition::response rsp;
+        rsp.id = req.id;
+        auto uri = req.params.textDocument.uri.GetAbsolutePath();
+        int const line = req.params.position.line;
+        int const character = req.params.position.character;
+        rsp.result = get_definition(uri, line, character, appstate);
+        return rsp;
+    });
 
     glslang::InitializeProcess();
-
-    if (!symbols_path.empty()) {
-        std::string const contents = *read_file_to_string(symbols_path.c_str());
-        std::string const uri = make_path_uri(symbols_path);
-        appstate.workspace.add_document(uri, contents);
-        auto symbols = get_symbols(uri, appstate);
-        for (auto &entry : symbols) {
-            const auto &name = entry.first;
-            const auto &symbol = entry.second;
-
-            if (symbol.location.uri != nullptr) {
-                const auto &doc_contents = appstate.workspace.documents()[symbol.location.uri];
-                auto position = find_source_location(doc_contents.c_str(), symbol.location.offset);
-                fmt::print("{} : {}:{} : {}\n", name, position.line, position.character, symbol.details);
-            } else {
-                fmt::print("{} : @{} : {}\n", name, symbol.location.offset, symbol.details);
-            }
-        }
-    } else if (!diagnostic_path.empty()) {
-        std::string const contents = *read_file_to_string(diagnostic_path.c_str());
-        std::string const uri = make_path_uri(diagnostic_path);
-        appstate.workspace.add_document(uri, contents);
-        auto diagnostics = get_diagnostics(uri, contents, appstate);
-        fmt::print("diagnostics: {}\n", diagnostics.dump(4));
-    } else if (!use_stdin) {
-        struct mg_mgr mgr {};
-        struct mg_connection *nc = nullptr;
-        struct mg_bind_opts bind_opts {};
-        std::memset(&bind_opts, 0, sizeof(bind_opts));
-        bind_opts.user_data = &appstate;
-
-        mg_mgr_init(&mgr, nullptr);
-        fmt::print("Starting web server on port {}\n", port);
-        nc = mg_bind_opt(&mgr, fmt::format("localhost:{}", port).c_str(), ev_handler, bind_opts);
-        if (nc == nullptr) {
-            return 1;
-        }
-
-        // Set up HTTP server parameters
-        mg_set_protocol_http_websocket(nc);
-
-        while (true) {
-            mg_mgr_poll(&mgr, 1000);
-        }
-        mg_mgr_free(&mgr);
-    } else {
-        char c = 0;
-        MessageBuffer message_buffer;
-
-#if _WIN32
-        // Get a handle to standard input.
-        HANDLE handle = GetStdHandle(STD_INPUT_HANDLE);
-        DWORD old_mode{};
-        bool escape_codes = false;
-
-        // Get the old mode and enable escape code processing if everything works.
-        if (handle != INVALID_HANDLE_VALUE) {
-            if (GetConsoleMode(handle, &old_mode)) {
-                DWORD new_mode = old_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-                escape_codes = SetConsoleMode(handle, new_mode);
-            }
-        }
-#endif
-
-        while (std::cin.get(c)) {
-#if _WIN32 // Figure out a better way
-            if (c == '\n')
-                message_buffer.handle_char('\r');
-#endif
-
-            message_buffer.handle_char(c);
-
-            if (message_buffer.message_completed()) {
-                json body = message_buffer.body();
-                if (appstate.use_logfile) {
-                    fmt::print(appstate.logfile_stream, ">>> Received message of type '{}'\n", body["method"].get<std::string>());
-                    if (appstate.verbose) {
-                        fmt::print(appstate.logfile_stream, "Headers:\n");
-                        for (auto elem : message_buffer.headers()) {
-                            auto pretty_header = fmt::format("{}: {}\n", elem.first, elem.second);
-                            appstate.logfile_stream << pretty_header;
-                        }
-                        fmt::print(appstate.logfile_stream, "Body: \n{}\n\n", body.dump(4));
-                        fmt::print(appstate.logfile_stream, "Raw: \n{}\n\n", message_buffer.raw());
-                    }
-                }
-
-                auto message = handle_message(message_buffer, appstate);
-                if (message.has_value()) {
-                    fmt::print("{}", message.value());
-                    std::cout << std::flush;
-
-                    if (appstate.use_logfile && appstate.verbose) {
-                        fmt::print(appstate.logfile_stream, "<<< Sending message: \n{}\n\n", message.value());
-                    }
-                }
-                appstate.logfile_stream.flush();
-                message_buffer.clear();
-            }
-        }
-
-#if _WIN32
-        if (escape_codes) {
-            SetConsoleMode(handle, old_mode);
-        }
-#endif
-    }
-
-    if (appstate.use_logfile) {
-        appstate.logfile_stream.close();
-    }
-
+    server.start();
+    esc_event.wait();
     glslang::FinalizeProcess();
+    server.stop();
 
     return 0;
 }

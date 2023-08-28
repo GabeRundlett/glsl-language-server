@@ -45,23 +45,5 @@ cmake --install ./.out/<preset>/
 
 ## Usage
 
-You can run `glslls` to use a HTTP server to handle IO. Alternatively, run
-`glslls --stdin` to handle IO on stdin.
-
-## Editor Examples
-The following are examples of how to run `glslls` from various editors that support LSP.
-
-### Emacs
-
-[lsp-mode](https://github.com/emacs-lsp/lsp-mode/) has this language server
-integrated into the core. This assumes you have [glsl-mode](https://github.com/jimhourihan/glsl-mode)
-installed. See the lsp-mode's [GLSL](https://emacs-lsp.github.io/lsp-mode/page/lsp-glsl/)
-for more details.
-
-### Neovim
-
-[lspconfig](https://github.com/neovim/nvim-lspconfig) offers a ready-to-go configuration:
-
-```lua
-require'lspconfig'.glslls.setup{}
-```
+You can run `glsl-language-server` to use a HTTP server to handle IO. Alternatively, run
+`glsl-language-server --stdin` to handle IO on stdin.
