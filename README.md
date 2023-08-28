@@ -18,7 +18,12 @@ Currently this LSP implementation can be interfaced with using either HTTP or st
 
 ## Compile
 
-To build this project, you just need a valid C++20 compiler, CMake, Ninja and finally vcpkg.
+To build this project, you just need Git, a valid C++20 compiler, CMake, and Ninja.
+
+This project uses vcpkg to acquire its dependencies, and so if you have it installed
+globally, then we'll use that. If it's not installed globally, vcpkg will be cloned
+automatically via git. If for some reason the vcpkg/downloads and vcpkg/buildtrees
+are massive folders, you can safely delete them after this project successfully configures.
 
 Decide on a toolchain and config, then run the below commands to build/install
 

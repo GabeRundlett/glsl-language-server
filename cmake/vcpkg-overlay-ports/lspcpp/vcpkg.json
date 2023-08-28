@@ -3,7 +3,15 @@
     "version-string": "0.1.0",
     "description": "Unofficial LspCpp",
     "dependencies": [
-        "boost",
+        "boost-chrono",
+        "boost-date-time",
+        "boost-program-options",
+        "boost-system",
+        "boost-thread",
+        "boost-uuid",
+        "boost-process",
+        "boost-beast",
+        "boost-algorithm",
         "rapidjson",
         {
             "name": "vcpkg-cmake",

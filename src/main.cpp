@@ -332,7 +332,7 @@ auto get_hover_info(const std::string &uri, int line, int character, AppState &a
 
     auto result = TextDocumentHover::Result{};
     auto val = lsMarkedString{.language = std::string{"glsl"}, .value = symbol->second.details};
-    result.contents.first = std::vector{std::pair<boost::optional<std::string>, boost::optional<lsMarkedString>>{{}, val}};
+    result.contents.first = std::vector{std::pair<std::optional<std::string>, std::optional<lsMarkedString>>{{}, val}};
     // return json{{"contents", {{"language", "glsl"}, {"value", symbol->second.details}}}};
     return result;
 }
@@ -544,7 +544,7 @@ auto main(int argc, char *argv[]) -> int {
             td_initialize::response rsp;
 
             rsp.result.capabilities.textDocumentSync =
-                std::pair<boost::optional<lsTextDocumentSyncKind>, boost::optional<lsTextDocumentSyncOptions>>{
+                std::pair<std::optional<lsTextDocumentSyncKind>, std::optional<lsTextDocumentSyncOptions>>{
                     lsTextDocumentSyncKind::Full,
                     lsTextDocumentSyncOptions{
                         .openClose = true,

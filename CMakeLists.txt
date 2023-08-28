@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.21.0)
 project(glslls VERSION 1.1.0)
 
 include(cmake/warnings.cmake)
+include(cmake/vcpkg.cmake)
 
 # enable_static_analysis()
 
