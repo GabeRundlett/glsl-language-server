@@ -105,7 +105,12 @@ auto find_language(const std::string &name) -> EShLanguage {
 auto get_diagnostics(std::string uri, const std::string &content,
                      AppState &appstate) -> std::vector<lsDiagnostic> {
     FILE const fp_old = *stdout;
+#if _WIN32
+    *stdout = *fopen("NUL", "w");
+#else
     *stdout = *fopen("/dev/null", "w");
+#endif
+
     const auto &document = std::move(uri);
     auto lang = find_language(document);
 
@@ -365,16 +370,16 @@ using namespace boost::asio::ip;
 using namespace std;
 class DummyLog : public lsp::Log {
   public:
-    void log(Level level, std::wstring &&msg){
+    void log(Level level, std::wstring &&msg) {
         std::wcout << msg << std::endl;
     };
-    void log(Level level, const std::wstring &msg){
+    void log(Level level, const std::wstring &msg) {
         std::wcout << msg << std::endl;
     };
-    void log(Level level, std::string &&msg){
+    void log(Level level, std::string &&msg) {
         std::cout << msg << std::endl;
     };
-    void log(Level level, const std::string &msg){
+    void log(Level level, const std::string &msg) {
         std::cout << msg << std::endl;
     };
 };
@@ -410,7 +415,7 @@ struct TcpServer {
 auto main(int argc, char *argv[]) -> int {
     CLI::App app{"GLSL Language Server"};
 
-    // bool use_stdin = false;
+    bool use_stdin = false;
     bool verbose = false;
     bool version = false;
     // uint16_t port = 61313;
@@ -422,7 +427,7 @@ auto main(int argc, char *argv[]) -> int {
     std::string symbols_path;
     std::string diagnostic_path;
 
-    // auto *stdin_option = app.add_flag("--stdio", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
+    auto *stdin_option = app.add_flag("--stdio", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
     app.add_flag("-v,--verbose", verbose, "Enable verbose logging");
     app.add_flag("--version", version, "Request version");
     app.add_option("-l,--log", logfile, "Log file");
@@ -456,7 +461,7 @@ auto main(int argc, char *argv[]) -> int {
     std::shared_ptr<lsp::ProtocolJsonHandler> protocol_json_handler = std::make_shared<lsp::ProtocolJsonHandler>();
     std::shared_ptr<GenericEndpoint> endpoint = std::make_shared<GenericEndpoint>(_log);
 
-    auto server = TcpServer(protocol_json_handler, endpoint, _log);
+    auto server = StdioServer(protocol_json_handler, endpoint, _log);
 
     Condition<bool> esc_event;
 
