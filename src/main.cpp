@@ -55,6 +55,8 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
+#define USE_STDIO true
+
 /// By default we target the most recent graphics APIs to be maximally permissive.
 struct TargetVersions {
     // The target API (eg, Vulkan, OpenGL).
@@ -371,16 +373,24 @@ using namespace std;
 class DummyLog : public lsp::Log {
   public:
     void log(Level level, std::wstring &&msg) {
+#if !USE_STDIO
         std::wcout << msg << std::endl;
+#endif
     };
     void log(Level level, const std::wstring &msg) {
+#if !USE_STDIO
         std::wcout << msg << std::endl;
+#endif
     };
     void log(Level level, std::string &&msg) {
+#if !USE_STDIO
         std::cout << msg << std::endl;
+#endif
     };
     void log(Level level, const std::string &msg) {
+#if !USE_STDIO
         std::cout << msg << std::endl;
+#endif
     };
 };
 
@@ -461,7 +471,11 @@ auto main(int argc, char *argv[]) -> int {
     std::shared_ptr<lsp::ProtocolJsonHandler> protocol_json_handler = std::make_shared<lsp::ProtocolJsonHandler>();
     std::shared_ptr<GenericEndpoint> endpoint = std::make_shared<GenericEndpoint>(_log);
 
+#if USE_STDIO
     auto server = StdioServer(protocol_json_handler, endpoint, _log);
+#else
+    auto server = TcpServer(protocol_json_handler, endpoint, _log);
+#endif
 
     Condition<bool> esc_event;
 
