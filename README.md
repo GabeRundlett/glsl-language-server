@@ -1,8 +1,8 @@
-# glsl-language-server
+# gr-shader-language-server
 Language server implementation for GLSL
 
 ## Status
-Currently this LSP implementation can be interfaced with using either HTTP or stdio.
+Currently, this LSP implementation can be interfaced with using either TCP or stdio.
 
 ### Current Features
 
