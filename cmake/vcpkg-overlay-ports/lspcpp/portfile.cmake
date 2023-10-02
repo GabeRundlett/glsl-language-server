@@ -4,6 +4,7 @@ vcpkg_from_git(
     REF 27bf485ecf9d18cf29c082b2ce68ee0beb7c6c62
     PATCHES
         "fix-cmake.patch"
+        "fix-optional.patch"
 )
 
 vcpkg_cmake_configure(

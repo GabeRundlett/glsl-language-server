@@ -15,12 +15,12 @@ auto FileIncluder::includeLocal(
     const char *header_name,
     const char *includer_name,
     size_t /*depth*/) -> IncludeResult * {
-    const auto *suffix = strip_prefix("file://", includer_name);
-    if (suffix == nullptr) {
-        return nullptr;
-    }
+    // const auto *suffix = strip_prefix("file://", includer_name);
+    // if (suffix == nullptr) {
+    //     return nullptr;
+    // }
 
-    fs::path path = suffix;
+    fs::path path = includer_name;
     path.replace_filename(header_name);
     path = fs::absolute(path);
 

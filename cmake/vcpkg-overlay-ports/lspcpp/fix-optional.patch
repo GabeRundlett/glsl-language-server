@@ -1,0 +1,19 @@
+diff --git a/include/LibLsp/JsonRpc/optionalVersion.h b/include/LibLsp/JsonRpc/optionalVersion.h
+index f767b18..1a7aee2 100644
+--- a/include/LibLsp/JsonRpc/optionalVersion.h
++++ b/include/LibLsp/JsonRpc/optionalVersion.h
+@@ -1,13 +1,4 @@
+-#ifndef boost
+-#if __cplusplus < 201703L
+-
+-#include <boost/optional.hpp>
+-using boost::optional;
+-
+-#else
++#pragma once
+ 
+ #include <optional>
+ using std::optional;
+-
+-#endif
+-#endif

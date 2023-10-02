@@ -55,7 +55,7 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-#define USE_STDIO true
+#define USE_LOGGING true
 
 /// By default we target the most recent graphics APIs to be maximally permissive.
 struct TargetVersions {
@@ -106,10 +106,12 @@ auto find_language(const std::string &name) -> EShLanguage {
 
 auto get_diagnostics(std::string uri, const std::string &content,
                      AppState &appstate) -> std::vector<lsDiagnostic> {
-    FILE const fp_old = *stdout;
 #if _WIN32
-    *stdout = *fopen("NUL", "w");
+    auto *temp_out = fopen("nul:", "a");
+    auto stdout_dupfd = _dup(1);
+    _dup2(_fileno(temp_out), 1);
 #else
+    FILE const fp_old = *stdout;
     *stdout = *fopen("/dev/null", "w");
 #endif
 
@@ -122,15 +124,11 @@ auto get_diagnostics(std::string uri, const std::string &content,
 
     if ((target.options & EShMsgSpvRules) != 0u) {
         if ((target.options & EShMsgVulkanRules) != 0u) {
-            shader.setEnvInput((target.options & EShMsgReadHlsl) != 0u ? glslang::EShSourceHlsl
-                                                                       : glslang::EShSourceGlsl,
-                               lang, glslang::EShClientVulkan, 100);
+            shader.setEnvInput((target.options & EShMsgReadHlsl) != 0u ? glslang::EShSourceHlsl : glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 100);
             shader.setEnvClient(glslang::EShClientVulkan, target.client_api_version);
             shader.setEnvTarget(glslang::EShTargetSpv, target.spv_version);
         } else {
-            shader.setEnvInput((target.options & EShMsgReadHlsl) != 0u ? glslang::EShSourceHlsl
-                                                                       : glslang::EShSourceGlsl,
-                               lang, glslang::EShClientOpenGL, 100);
+            shader.setEnvInput((target.options & EShMsgReadHlsl) != 0u ? glslang::EShSourceHlsl : glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 100);
             shader.setEnvClient(glslang::EShClientOpenGL, target.client_api_version);
             shader.setEnvTarget(glslang::EshTargetSpv, target.spv_version);
         }
@@ -142,12 +140,23 @@ auto get_diagnostics(std::string uri, const std::string &content,
 
     FileIncluder includer{&appstate.workspace};
 
+    std::string preamble;
+    preamble += "#extension GL_GOOGLE_include_directive : enable\n";
+    preamble += "#extension GL_KHR_memory_scope_semantics : enable\n";
+    shader.setPreamble(preamble.c_str());
+
     TBuiltInResource const Resources = *GetDefaultResources();
-    auto const messages =
-        (EShMessages)(EShMsgCascadingErrors | target.options);
-    shader.parse(&Resources, 110, false, messages, includer);
+    auto const messages = static_cast<EShMessages>(EShMsgCascadingErrors | target.options);
+    shader.parse(&Resources, 450, false, messages, includer);
     std::string debug_log = shader.getInfoLog();
+#if _WIN32
+    fflush(stdout);
+    fclose(temp_out);
+    _dup2(stdout_dupfd, 1);
+    _close(stdout_dupfd);
+#else
     *stdout = fp_old;
+#endif
 
     if (appstate.use_logfile && appstate.verbose) {
         fmt::print(appstate.logfile_stream, "Diagnostics raw output: {}\n", debug_log);
@@ -195,7 +204,7 @@ auto get_diagnostics(std::string uri, const std::string &content,
                 auto identifier_length = message_matches[1].length();
                 auto source_pos = source_line.find(identifier);
                 start_char = static_cast<int>(source_pos);
-                end_char = static_cast<int>(source_pos) + static_cast<int>(identifier_length) - 1;
+                end_char = static_cast<int>(source_pos) + static_cast<int>(identifier_length);
             } else {
                 // If we can't find a precise position, we'll just use the whole line.
                 start_char = 0;
@@ -373,28 +382,39 @@ using namespace std;
 class DummyLog : public lsp::Log {
   public:
     void log(Level level, std::wstring &&msg) {
-#if !USE_STDIO
+#if USE_LOGGING
         std::wcout << msg << std::endl;
 #endif
     };
     void log(Level level, const std::wstring &msg) {
-#if !USE_STDIO
+#if USE_LOGGING
         std::wcout << msg << std::endl;
 #endif
     };
     void log(Level level, std::string &&msg) {
-#if !USE_STDIO
+#if USE_LOGGING
         std::cout << msg << std::endl;
 #endif
     };
     void log(Level level, const std::string &msg) {
-#if !USE_STDIO
+#if USE_LOGGING
         std::cout << msg << std::endl;
 #endif
     };
 };
 
-struct StdioServer {
+struct LanguageServer {
+    virtual ~LanguageServer() {}
+    virtual RemoteEndPoint &get_endpoint() = 0;
+    virtual void start() = 0;
+    virtual void stop() = 0;
+};
+
+struct StdioServer final : LanguageServer {
+    StdioServer(const StdioServer &) = delete;
+    StdioServer(StdioServer &&) = default;
+    StdioServer &operator=(const StdioServer &) = delete;
+    StdioServer &operator=(StdioServer &&) = default;
     StdioServer(const std::shared_ptr<MessageJsonHandler> &json_handler, const std::shared_ptr<Endpoint> &localEndPoint, lsp::Log &_log) : remote_end_point_(json_handler, localEndPoint, _log) {}
     struct ostream : lsp::base_ostream<std::ostream> {
         explicit ostream(std::ostream &_t) : base_ostream<std::ostream>(_t) {}
@@ -407,19 +427,23 @@ struct StdioServer {
     std::shared_ptr<ostream> output = std::make_shared<ostream>(std::cout);
     std::shared_ptr<istream> input = std::make_shared<istream>(std::cin);
     RemoteEndPoint remote_end_point_;
-    void start() { remote_end_point_.startProcessingMessages(input, output); }
-    void stop() {}
-    auto &get_endpoint() { return remote_end_point_; }
+    virtual void start() override { remote_end_point_.startProcessingMessages(input, output); }
+    virtual void stop() override {}
+    virtual RemoteEndPoint &get_endpoint() override { return remote_end_point_; }
 };
 
-struct TcpServer {
-    TcpServer(const std::shared_ptr<MessageJsonHandler> &json_handler, const std::shared_ptr<Endpoint> &localEndPoint, lsp::Log &_log) : server("127.0.0.1", "9333", json_handler, localEndPoint, _log) {}
+struct TcpServer final : LanguageServer {
+    TcpServer(const TcpServer &) = delete;
+    TcpServer(TcpServer &&) = default;
+    TcpServer &operator=(const TcpServer &) = delete;
+    TcpServer &operator=(TcpServer &&) = default;
+    TcpServer(const std::shared_ptr<MessageJsonHandler> &json_handler, const std::shared_ptr<Endpoint> &localEndPoint, lsp::Log &_log, const std::string &port) : server("127.0.0.1", port, json_handler, localEndPoint, _log) {}
     lsp::TcpServer server;
-    void start() {
+    virtual void start() override {
         std::thread([&]() { server.run(); }).detach();
     }
-    void stop() { server.stop(); }
-    auto &get_endpoint() { return server.point; }
+    virtual void stop() override { server.stop(); }
+    virtual RemoteEndPoint &get_endpoint() override { return server.point; }
 };
 
 auto main(int argc, char *argv[]) -> int {
@@ -436,6 +460,7 @@ auto main(int argc, char *argv[]) -> int {
 
     std::string symbols_path;
     std::string diagnostic_path;
+    std::string port = "7125";
 
     auto *stdin_option = app.add_flag("--stdio", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
     app.add_flag("-v,--verbose", verbose, "Enable verbose logging");
@@ -443,7 +468,7 @@ auto main(int argc, char *argv[]) -> int {
     app.add_option("-l,--log", logfile, "Log file");
     app.add_option("--debug-symbols", symbols_path, "Print the list of symbols for the given file");
     app.add_option("--debug-diagnostic", diagnostic_path, "Debug diagnostic output for the given file");
-    // app.add_option("-p,--port", port, "Port", true)->excludes(stdin_option);
+    app.add_option("-p,--port", port, "Port", true)->excludes(stdin_option);
     app.add_option("--target-env", client_api,
                    "Target client environment.\n"
                    "    [vulkan vulkan1.0 vulkan1.1 vulkan1.2 vulkan1.3 opengl opengl4.5]",
@@ -461,7 +486,7 @@ auto main(int argc, char *argv[]) -> int {
     }
 
     if (version) {
-        fmt::print("glsl-language-server version {}.{}.{}\n", GLSLLS_VERSION_MAJOR, GLSLLS_VERSION_MINOR, GLSLLS_VERSION_PATCH);
+        fmt::print("glsl-language-server version {}.{}.{}\n", GRSLS_VERSION_MAJOR, GRSLS_VERSION_MINOR, GRSLS_VERSION_PATCH);
         return 0;
     }
 
@@ -471,11 +496,12 @@ auto main(int argc, char *argv[]) -> int {
     std::shared_ptr<lsp::ProtocolJsonHandler> protocol_json_handler = std::make_shared<lsp::ProtocolJsonHandler>();
     std::shared_ptr<GenericEndpoint> endpoint = std::make_shared<GenericEndpoint>(_log);
 
-#if USE_STDIO
-    auto server = StdioServer(protocol_json_handler, endpoint, _log);
-#else
-    auto server = TcpServer(protocol_json_handler, endpoint, _log);
-#endif
+    std::unique_ptr<LanguageServer> server;
+    if (use_stdin) {
+        server = std::make_unique<StdioServer>(protocol_json_handler, endpoint, _log);
+    } else {
+        server = std::make_unique<TcpServer>(protocol_json_handler, endpoint, _log, port);
+    }
 
     Condition<bool> esc_event;
 
@@ -550,7 +576,7 @@ auto main(int argc, char *argv[]) -> int {
         return rsp;                                                    \
     }
 
-    auto &server_point = server.get_endpoint();
+    auto &server_point = server->get_endpoint();
 
     server_point.registerHandler(
         [&](const td_initialize::request &req)
@@ -647,10 +673,10 @@ auto main(int argc, char *argv[]) -> int {
     });
 
     glslang::InitializeProcess();
-    server.start();
+    server->start();
     esc_event.wait();
     glslang::FinalizeProcess();
-    server.stop();
+    server->stop();
 
     return 0;
 }

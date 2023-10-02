@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21.0)
 include(cmake/warnings.cmake)
 include(cmake/vcpkg.cmake)
 
-project(glslls VERSION 1.1.0)
+project(grsls VERSION 1.3.0)
 # enable_static_analysis()
 
 file(GLOB SOURCES src/*.cpp)
@@ -20,9 +20,9 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(lspcpp CONFIG REQUIRED)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
-    GLSLLS_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-    GLSLLS_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-    GLSLLS_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    GRSLS_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    GRSLS_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    GRSLS_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
 
 # if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
