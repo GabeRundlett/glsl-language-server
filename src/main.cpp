@@ -55,7 +55,7 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-#define USE_LOGGING true
+#define USE_LOGGING false
 
 /// By default we target the most recent graphics APIs to be maximally permissive.
 struct TargetVersions {
