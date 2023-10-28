@@ -7,7 +7,6 @@
     "glslang",
     "fmt",
     "nlohmann-json",
-    "cli11",
     "mongoose",
     "lspcpp"
   ],

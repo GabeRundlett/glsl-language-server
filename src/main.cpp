@@ -1,6 +1,7 @@
 #include "LibLsp/JsonRpc/Condition.h"
 #include "LibLsp/lsp/general/exit.h"
 #include "LibLsp/lsp/general/initialize.h"
+#include "LibLsp/lsp/general/shutdown.h"
 #include "LibLsp/lsp/ProtocolJsonHandler.h"
 #include "LibLsp/lsp/AbsolutePath.h"
 
@@ -27,7 +28,6 @@
 #include <iostream>
 #include <thread>
 
-#include <CLI/CLI.hpp>
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <nlohmann/json.hpp>
@@ -447,47 +447,100 @@ struct TcpServer final : LanguageServer {
 };
 
 auto main(int argc, char *argv[]) -> int {
-    CLI::App app{"GLSL Language Server"};
+    using namespace std::literals;
 
-    bool use_stdin = false;
+    enum class CommMode {
+        NONE,
+        SOCKET,
+        STDIO,
+    };
+
+    auto comm_mode = CommMode::NONE;
+
     bool verbose = false;
     bool version = false;
-    // uint16_t port = 61313;
     std::string logfile;
 
-    std::string client_api = "vulkan1.3";
+    std::string client_api;
     std::string spirv_version;
 
-    std::string symbols_path;
-    std::string diagnostic_path;
     std::string port = "7125";
 
-    auto *stdin_option = app.add_flag("--stdio", use_stdin, "Don't launch an HTTP server and instead accept input on stdin");
-    app.add_flag("-v,--verbose", verbose, "Enable verbose logging");
-    app.add_flag("--version", version, "Request version");
-    app.add_option("-l,--log", logfile, "Log file");
-    app.add_option("--debug-symbols", symbols_path, "Print the list of symbols for the given file");
-    app.add_option("--debug-diagnostic", diagnostic_path, "Debug diagnostic output for the given file");
-    app.add_option("-p,--port", port, "Port", true)->excludes(stdin_option);
-    app.add_option("--target-env", client_api,
-                   "Target client environment.\n"
-                   "    [vulkan vulkan1.0 vulkan1.1 vulkan1.2 vulkan1.3 opengl opengl4.5]",
-                   true);
-    app.add_option("--target-spv", spirv_version,
-                   "The SPIR-V version to target.\n"
-                   "Defaults to the highest possible for the target environment.\n"
-                   "    [spv1.0 spv1.1 spv1.2 spv1.3 spv1.4 spv1.5 spv1.6]",
-                   true);
+    enum class DependentOption {
+        NONE,
+        SOCKET,
+        PORT,
+    };
+    auto current_dependent_option = DependentOption::NONE;
 
-    try {
-        app.parse(argc, argv);
-    } catch (const CLI::ParseError &e) {
-        return app.exit(e);
+    auto is_number = [](std::string_view s) -> bool {
+        auto it = s.begin();
+        while (it != s.end() && std::isdigit(*it))
+            ++it;
+        return !s.empty() && it == s.end();
+    };
+
+    auto args = std::span<char *>{argv, static_cast<size_t>(argc)};
+
+    if (args.size() >= 2) {
+        if (args[1] == "--help") {
+            fmt::print("TODO: HELP MENU\n");
+            return 0;
+        } else if (args[1] == "--version") {
+            fmt::print("grsls version {}.{}.{}\n", GRSLS_VERSION_MAJOR, GRSLS_VERSION_MINOR, GRSLS_VERSION_PATCH);
+            return 0;
+        }
     }
 
-    if (version) {
-        fmt::print("glsl-language-server version {}.{}.{}\n", GRSLS_VERSION_MAJOR, GRSLS_VERSION_MINOR, GRSLS_VERSION_PATCH);
-        return 0;
+    for (auto c_arg : args) {
+        auto arg = std::string_view{c_arg, static_cast<size_t>(strlen(c_arg))};
+
+        switch (current_dependent_option) {
+        case DependentOption::SOCKET: {
+            if (comm_mode == CommMode::SOCKET && is_number(arg)) {
+                port = arg;
+            }
+        } break;
+        }
+
+        // reset
+        current_dependent_option = DependentOption::NONE;
+
+        if (arg == "socket" || arg == "--socket") {
+            comm_mode = CommMode::SOCKET;
+            current_dependent_option = DependentOption::SOCKET;
+        } else if (arg == "stdio" || arg == "--stdio") {
+            comm_mode = CommMode::STDIO;
+        } else if (arg.starts_with("--log=")) {
+            logfile = arg.substr(6);
+        }
+
+        auto is_socket_opt = arg.starts_with("--socket="sv);
+        auto is_port_opt = arg.starts_with("--port="sv);
+        if (is_socket_opt || is_port_opt) {
+            auto port_sv = [&]() {
+                if (is_socket_opt) {
+                    return arg.substr(9);
+                } else /* if (is_port_opt) */ {
+                    return arg.substr(7);
+                }
+                // unreachable
+            }();
+            if (is_number(port_sv)) {
+                port = port_sv;
+            } else {
+                // maybe warn?
+            }
+        }
+    }
+
+    if (current_dependent_option != DependentOption::NONE) {
+        // maybe warn?
+    }
+
+    if (comm_mode == CommMode::NONE) {
+        // maybe warn?
+        comm_mode = CommMode::SOCKET;
     }
 
     AppState appstate;
@@ -497,10 +550,9 @@ auto main(int argc, char *argv[]) -> int {
     std::shared_ptr<GenericEndpoint> endpoint = std::make_shared<GenericEndpoint>(_log);
 
     std::unique_ptr<LanguageServer> server;
-    if (use_stdin) {
-        server = std::make_unique<StdioServer>(protocol_json_handler, endpoint, _log);
-    } else {
-        server = std::make_unique<TcpServer>(protocol_json_handler, endpoint, _log, port);
+    switch (comm_mode) {
+    case CommMode::STDIO: server = std::make_unique<StdioServer>(protocol_json_handler, endpoint, _log); break;
+    case CommMode::SOCKET: server = std::make_unique<TcpServer>(protocol_json_handler, endpoint, _log, port); break;
     }
 
     Condition<bool> esc_event;
@@ -518,6 +570,25 @@ auto main(int argc, char *argv[]) -> int {
     const auto getSpvRules = []() {
         return EShMessages(EShMsgSpvRules);
     };
+
+    if (!spirv_version.empty()) {
+        appstate.target.options = getSpvRules();
+        if (spirv_version == "spv1.5") {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_5;
+        } else if (spirv_version == "spv1.4") {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_4;
+        } else if (spirv_version == "spv1.3") {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_3;
+        } else if (spirv_version == "spv1.2") {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_2;
+        } else if (spirv_version == "spv1.1") {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_1;
+        } else if (spirv_version == "spv1.0") {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_0;
+        } else if (spirv_version == "spv1.6") {
+            appstate.target.spv_version = glslang::EShTargetSpv_1_6;
+        }
+    }
 
     if (!client_api.empty()) {
         if (client_api == "vulkan1.2") {
@@ -539,31 +610,11 @@ auto main(int argc, char *argv[]) -> int {
             appstate.target.client_api = glslang::EShClientOpenGL;
             appstate.target.client_api_version = glslang::EShTargetOpenGL_450;
             appstate.target.spv_version = glslang::EShTargetSpv_1_3;
-        } else if (client_api == "vulkan1.3" || client_api == "vulkan" || true) {
+        } else if (client_api == "vulkan1.3" || client_api == "vulkan") {
             appstate.target.client_api = glslang::EShClientVulkan;
             appstate.target.client_api_version = glslang::EShTargetVulkan_1_3;
             appstate.target.spv_version = glslang::EShTargetSpv_1_6;
             appstate.target.options = getVulkanSpv();
-        }
-    }
-
-    if (!spirv_version.empty()) {
-        appstate.target.options = getSpvRules();
-
-        if (spirv_version == "spv1.5") {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_5;
-        } else if (spirv_version == "spv1.4") {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_4;
-        } else if (spirv_version == "spv1.3") {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_3;
-        } else if (spirv_version == "spv1.2") {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_2;
-        } else if (spirv_version == "spv1.1") {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_1;
-        } else if (spirv_version == "spv1.0") {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_0;
-        } else if (spirv_version == "spv1.6" || true) {
-            appstate.target.spv_version = glslang::EShTargetSpv_1_6;
         }
     }
 
@@ -617,6 +668,14 @@ auto main(int argc, char *argv[]) -> int {
         });
     server_point.registerHandler([&](Notify_Exit::notify &notify) {
         esc_event.notify(std::make_unique<bool>(true));
+    });
+    server_point.registerHandler([&](td_shutdown::request const &req, const CancelMonitor &monitor) -> lsp::ResponseOrError<td_shutdown::response> {
+        HANDLE_MONITOR(monitor)
+        td_shutdown::response rsp;
+        rsp.id = req.id;
+        rsp.result = lsp::Any{};
+        rsp.result->SetJsonString("{}", lsp::Any::kNullType);
+        return rsp;
     });
 
     server_point.registerHandler([&](Notify_TextDocumentDidOpen::notify &notify) {

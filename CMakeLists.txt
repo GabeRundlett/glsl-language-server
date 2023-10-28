@@ -12,7 +12,6 @@ target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 set_project_warnings(${PROJECT_NAME})
 
 find_package(Threads REQUIRED)
-find_package(CLI11 CONFIG REQUIRED)
 find_package(glslang CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(unofficial-mongoose CONFIG REQUIRED)
@@ -35,7 +34,6 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME}
     Threads::Threads
-    CLI11::CLI11
     fmt::fmt-header-only
     glslang::OSDependent glslang::glslang glslang::MachineIndependent glslang::GenericCodeGen glslang::glslang-default-resource-limits glslang::OGLCompiler glslang::SPVRemapper glslang::SPIRV glslang::HLSL
     unofficial::mongoose::mongoose
