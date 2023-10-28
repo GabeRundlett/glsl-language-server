@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21.0)
 include(cmake/warnings.cmake)
 include(cmake/vcpkg.cmake)
 
-project(grsls VERSION 1.3.0)
+project(grsls VERSION 1.4.0)
 # enable_static_analysis()
 
 file(GLOB SOURCES src/*.cpp)

@@ -45,6 +45,7 @@
 #include <utility>
 #include <vector>
 #include <map>
+#include <span>
 
 #include "messagebuffer.hpp"
 #include "workspace.hpp"
